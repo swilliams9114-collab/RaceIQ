@@ -2,6 +2,14 @@
 
 All notable RaceIQ changes will be recorded here.
 
+## 1.0.2 — Racer name repair
+
+- Automatically repairs already-synced results that only contain player IDs.
+- Uses the faction roster first for faction-member names.
+- Falls back to cached names, then Torn's user/basic endpoint.
+- Adds name-repair diagnostics with source counts.
+- Repairs existing season data on startup without resetting results.
+
 ## 1.0.0 — Initial release
 
 - Added standalone TornPDA race management.
