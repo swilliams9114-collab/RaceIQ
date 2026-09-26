@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.1
-// @description  Mobile-first TornPDA race manager with race sync, resolved racer names, standings, prizes, Championship, sharing, diagnostics, and backups.
+// @version      1.0.2
+// @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
 // @author       Aurora Surrealis
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.1',
+    version: '1.0.2',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -377,6 +377,73 @@
     return {id: String(fallbackId || ''), name: ''};
   }
 
+  function needsNameRepair(value, id = '') {
+    const name = String(value || '').trim();
+    if (!name) return true;
+    if (id && name === `Player ${id}`) return true;
+    return /^Player\s+\d+$/i.test(name);
+  }
+
+  async function resolveNameForId(id, allowUserFallback = true) {
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return {name: '', source: 'unresolved'};
+
+    const factionName = factionIndex.namesById?.get(cleanId) || '';
+    if (factionName) {
+      state.userCache[cleanId] = factionName;
+      return {name: factionName, source: 'faction'};
+    }
+
+    const cached = String(state.userCache?.[cleanId] || '').trim();
+    if (cached && !needsNameRepair(cached, cleanId)) {
+      return {name: cached, source: 'cache'};
+    }
+
+    if (allowUserFallback) {
+      try {
+        const data = await apiGet(`/user/${encodeURIComponent(cleanId)}/basic`);
+        const user = extractBasicUser(data, cleanId);
+        if (user.name) {
+          state.userCache[cleanId] = user.name;
+          return {name: user.name, source: 'userApi'};
+        }
+      } catch (e) {
+        console.warn(`[RaceIQ] Could not resolve racer name for ${cleanId}`, e);
+      }
+    }
+
+    return {name: '', source: 'unresolved'};
+  }
+
+  async function repairStoredRacerNames(allowUserFallback = true) {
+    const stats = {fromFaction: 0, fromCache: 0, fromUserApi: 0, unresolved: 0, changed: 0};
+    const raceGroups = [
+      ...(state.qualifying || []),
+      ...((state.championship && state.championship.races) || [])
+    ];
+
+    for (const race of raceGroups) {
+      for (const result of (race.results || [])) {
+        const id = String(result.id || '').trim();
+        if (!id || !needsNameRepair(result.name, id)) continue;
+
+        const resolved = await resolveNameForId(id, allowUserFallback);
+        if (resolved.name) {
+          result.name = resolved.name;
+          stats.changed += 1;
+          if (resolved.source === 'faction') stats.fromFaction += 1;
+          else if (resolved.source === 'cache') stats.fromCache += 1;
+          else if (resolved.source === 'userApi') stats.fromUserApi += 1;
+        } else {
+          stats.unresolved += 1;
+        }
+      }
+    }
+
+    if (stats.changed) await saveState(false);
+    return stats;
+  }
+
   async function resolveRacerNames(racers) {
     const resolved = [];
 
@@ -384,27 +451,15 @@
       const copy = {...racer};
       const id = String(copy.id || '').trim();
 
-      if (!copy.name && id) {
-        copy.name =
-          factionIndex.namesById?.get(id) ||
-          state.userCache?.[id] ||
-          '';
+      if (id && needsNameRepair(copy.name, id)) {
+        const lookup = await resolveNameForId(id, true);
+        if (lookup.name) copy.name = lookup.name;
       }
 
-      if (!copy.name && id) {
-        try {
-          const data = await apiGet(`/user/${encodeURIComponent(id)}/basic`);
-          const user = extractBasicUser(data, id);
-          if (user.name) {
-            copy.name = user.name;
-            state.userCache[id] = user.name;
-          }
-        } catch (e) {
-          console.warn(`[RaceIQ] Could not resolve racer name for ${id}`, e);
-        }
+      if (copy.name && id && !needsNameRepair(copy.name, id)) {
+        state.userCache[id] = copy.name;
       }
 
-      if (copy.name && id) state.userCache[id] = copy.name;
       resolved.push(copy);
     }
 
@@ -795,9 +850,16 @@
       push('Torn API key', false, e.message);
     }
 
+    let repairStats = {fromFaction: 0, fromCache: 0, fromUserApi: 0, unresolved: 0, changed: 0};
     try {
       const faction = await fetchFactionMembers(true);
       push('Faction roster', faction.count > 0, `${faction.count} faction members loaded`);
+      repairStats = await repairStoredRacerNames(true);
+      push(
+        'Stored racer name repair',
+        repairStats.unresolved === 0,
+        `${repairStats.changed} repaired • faction ${repairStats.fromFaction} • cache ${repairStats.fromCache} • user API ${repairStats.fromUserApi} • unresolved ${repairStats.unresolved}`
+      );
     } catch (e) {
       push('Faction roster', false, e.message);
     }
@@ -1273,6 +1335,19 @@
   // ---------- boot ----------
   try {
     await loadState();
+
+    // Repair names from existing synced races on every upgrade/startup.
+    // Faction members are authoritative for faction-only RaceIQ results.
+    try {
+      await fetchFactionMembers(true);
+      const repaired = await repairStoredRacerNames(true);
+      if (repaired.changed || repaired.unresolved) {
+        console.log('[RaceIQ] name repair', repaired);
+      }
+    } catch (e) {
+      console.warn('[RaceIQ] startup name repair skipped', e);
+    }
+
     createUI();
 
     // Re-inject after Torn SPA navigation if needed.
