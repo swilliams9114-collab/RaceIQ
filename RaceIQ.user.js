@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.13
+// @version      1.0.14
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.13',
+    version: '1.0.14',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -1409,12 +1409,6 @@ Join the race, earn points, and fight for a Championship spot!`,
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      #${APP.buttonId}{
-        position:fixed;right:14px;bottom:88px;z-index:2147483645;
-        width:54px;height:54px;border-radius:50%;border:0;
-        background:#20242b;color:#fff;font-weight:800;font-size:13px;
-        box-shadow:0 4px 18px rgba(0,0,0,.45);
-      }
       #${APP.navWrapperId}{
         list-style:none;
         display:flex;
@@ -1552,15 +1546,6 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   function createUI() {
     injectStyle();
-
-    if (!document.getElementById(APP.buttonId)) {
-      const btn = document.createElement('button');
-      btn.id = APP.buttonId;
-      btn.textContent = 'RACE';
-      btn.setAttribute('aria-label', 'Open RaceIQ fallback launcher');
-      btn.addEventListener('click', toggleRaceIQPanel);
-      document.body.appendChild(btn);
-    }
 
     if (!document.getElementById(APP.panelId)) {
       const panel = document.createElement('div');
@@ -2466,7 +2451,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
     // Re-inject after Torn SPA navigation if needed.
     const observer = new MutationObserver(() => {
-      if (!document.getElementById(APP.buttonId) || !document.getElementById(APP.panelId)) {
+      if (!document.getElementById(APP.panelId)) {
         createUI();
         return;
       }
