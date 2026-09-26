@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.8
+// @version      1.0.9
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.8',
+    version: '1.0.9',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -761,19 +761,36 @@
     const standings = aggregateQualifying();
     const completed = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
 
-    if (completed < 8) {
-      if (!confirm(`Only ${completed}/8 qualifying races are marked Completed. Start Championship anyway?`)) return;
+    if (completed < state.season.qualifyingWeeks) {
+      throw new Error(
+        `Championship is not ready yet. ${completed}/${state.season.qualifyingWeeks} qualifying races are complete.`
+      );
     }
-    if (standings.length < 8) throw new Error('Not enough qualifying racers to lock a Top 8.');
+
+    if (standings.length < 8) {
+      throw new Error('Not enough qualifying racers to lock a Top 8.');
+    }
+
+    const top8 = standings.slice(0,8);
+    const summary = top8.map(r => `#${r.rank} ${r.name} — ${r.total} pts`).join('\n');
+
+    if (!confirm(
+      `Lock the Championship Top 8?\n\n` +
+      `${summary}\n\n` +
+      `Qualifying points will be saved as seeds, but Championship points start at 0.\n\n` +
+      `Continue?`
+    )) return;
 
     await createSnapshot('before_championship');
+
     state.championship.started = true;
-    state.championship.finalists = standings.slice(0,8).map(r => ({
+    state.championship.finalists = top8.map(r => ({
       id: r.id,
       name: r.name,
       qualifyingSeed: r.rank,
       qualifyingPoints: r.total
     }));
+
     await saveState(false);
   }
 
@@ -1495,23 +1512,113 @@
   function champView() {
     const qs = aggregateQualifying();
     const cs = aggregateChampionship();
-    const finalists = state.championship.finalists.map(f =>
-      `<tr><td>${f.qualifyingSeed}</td><td>${esc(f.name)}</td><td>${f.qualifyingPoints}</td></tr>`).join('');
-    const standings = cs.map(r =>
-      `<tr><td>${r.rank}</td><td>${esc(r.name)}</td><td>${r.points}</td><td>${r.wins}</td><td>${r.podiums}</td></tr>`).join('');
+    const completed = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
+    const remaining = Math.max(0, state.season.qualifyingWeeks - completed);
+    const ready = completed >= state.season.qualifyingWeeks && qs.length >= 8;
+
+    const projected = qs.slice(0,8);
+    const eighth = qs[7];
+    const ninth = qs[8];
+    const gap = eighth && ninth ? Math.max(0, eighth.total - ninth.total) : null;
+
+    const projectedCards = projected.map(r => `
+      <div class="ri-race-card">
+        <div class="ri-race-card-head">
+          <div>
+            <div class="ri-race-title">#${r.rank} ${esc(r.name)}</div>
+            <div class="ri-small">${r.starts} starts • ${r.wins} win(s) • ${r.podiums} podium(s)</div>
+          </div>
+          <span class="ri-pill good">${r.total} pts</span>
+        </div>
+      </div>
+    `).join('');
+
+    const finalists = state.championship.finalists.map(f => `
+      <div class="ri-race-card">
+        <div class="ri-race-card-head">
+          <div>
+            <div class="ri-race-title">Seed #${f.qualifyingSeed} — ${esc(f.name)}</div>
+            <div class="ri-small">Qualified with ${f.qualifyingPoints} pts</div>
+          </div>
+          <span class="ri-pill good">LOCKED</span>
+        </div>
+      </div>
+    `).join('');
+
+    const standings = cs.map(r => `
+      <tr>
+        <td>${r.rank}</td>
+        <td>${esc(r.name)}</td>
+        <td>${r.points}</td>
+        <td>${r.wins}</td>
+        <td>${r.podiums}</td>
+      </tr>
+    `).join('');
 
     return `
       <div class="ri-card">
-        <h3>Championship</h3>
-        <div class="ri-small">${state.championship.started ? 'Top 8 locked.' : 'Waiting for qualifying to finish.'}</div><br>
-        ${!state.championship.started ? `<button class="ri-btn" data-action="start-champ">Lock Top 8 & Start Championship</button>` : ''}
+        <h3>Championship Readiness</h3>
+
+        <div class="ri-grid">
+          <div class="ri-stat">Qualifying<b>${completed}/8</b></div>
+          <div class="ri-stat">Remaining<b>${remaining}</b></div>
+          <div class="ri-stat">Projected Top 8<b>${projected.length}/8</b></div>
+          <div class="ri-stat">Status<b>${state.championship.started ? 'LOCKED' : ready ? 'READY' : 'NOT READY'}</b></div>
+        </div>
+
+        <br>
+        <div class="ri-small">
+          ${state.championship.started
+            ? 'Championship finalists are locked. Championship points are separate from qualifying points.'
+            : ready
+              ? 'All qualifying races are complete. Review the projected Top 8 before locking the Championship field.'
+              : `Championship cannot be locked yet. ${remaining} qualifying race${remaining===1?'':'s'} remain.`}
+        </div>
+
+        ${!state.championship.started && ready ? `
+          <br>
+          <button class="ri-btn" data-action="start-champ">Lock Top 8 & Start Championship</button>
+        ` : ''}
       </div>
-      <div class="ri-card">
-        <h3>Finalists</h3>
-        <table class="ri-table"><thead><tr><th>Seed</th><th>Racer</th><th>Qual Pts</th></tr></thead><tbody>${finalists || '<tr><td colspan="3">Not locked yet.</td></tr>'}</tbody></table>
-      </div>
-      ${state.championship.started ? `<div class="ri-card"><h3>Championship Standings</h3><table class="ri-table"><thead><tr><th>#</th><th>Racer</th><th>Pts</th><th>Wins</th><th>Pod.</th></tr></thead><tbody>${standings}</tbody></table></div>` : ''}
-      ${state.championship.started ? `<div class="ri-card"><button class="ri-btn" data-action="sync-champ">Sync Current Championship Race</button></div>` : ''}
+
+      ${!state.championship.started ? `
+        <div class="ri-card">
+          <h3>Projected Championship Field</h3>
+          ${eighth ? `
+            <div class="ri-small">
+              Current cutoff: #8 ${esc(eighth.name)} — ${eighth.total} pts
+              ${ninth ? ` • #9 ${esc(ninth.name)} — ${ninth.total} pts • Gap ${gap}` : ''}
+            </div><br>
+          ` : '<div class="ri-small">Not enough ranked racers yet to calculate the Championship cutoff.</div><br>'}
+
+          <div class="ri-race-list">
+            ${projectedCards || '<div class="ri-small">No projected finalists yet.</div>'}
+          </div>
+
+          <br>
+          <button class="ri-btn secondary" data-action="copy-projected-top8">Copy Projected Top 8</button>
+        </div>
+      ` : `
+        <div class="ri-card">
+          <h3>Locked Finalists</h3>
+          <div class="ri-race-list">${finalists}</div>
+        </div>
+      `}
+
+      ${state.championship.started ? `
+        <div class="ri-card">
+          <h3>Championship Standings</h3>
+          <div class="ri-small">Championship points reset to 0 when the field is locked.</div><br>
+          <table class="ri-table">
+            <thead><tr><th>#</th><th>Racer</th><th>Pts</th><th>Wins</th><th>Pod.</th></tr></thead>
+            <tbody>${standings || '<tr><td colspan="5">No Championship results yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <div class="ri-card">
+          <button class="ri-btn" data-action="sync-champ">Sync Current Championship Race</button>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -1831,6 +1938,13 @@
             previewAndCopy(`AURORA SURREALIS — WEEK ${week} PRIZE WINNERS\n\n${names}\n\nEach winner receives ${draw.prize.qtyPerWinner}x ${draw.prize.name}.`, 'Prize Draw Complete');
           }
           return;
+        }
+        if (action === 'copy-projected-top8') {
+          const s = aggregateQualifying().slice(0,8);
+          let out = `AURORA SURREALIS — PROJECTED CHAMPIONSHIP TOP 8\n\n`;
+          s.forEach(r => out += `#${r.rank} ${r.name} — ${r.total} pts\n`);
+          out += `\nProjection only. Finalists lock after Week 8 qualifying is complete.`;
+          await copyText(out); return;
         }
         if (action === 'start-champ') { await startChampionship(); return; }
         if (action === 'sync-champ') {
