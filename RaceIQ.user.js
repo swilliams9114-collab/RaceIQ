@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.6
+// @version      1.0.7
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.6',
+    version: '1.0.7',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -824,6 +824,59 @@
     return state.prizes.history.filter(h => Number(h.week) === Number(week));
   }
 
+  function groupedPrizeDraws(limit = 8) {
+    const byId = new Map();
+
+    for (const h of state.prizes.history) {
+      const id = h.id || `legacy-${h.week}-${h.timestamp || ''}-${h.prize || ''}`;
+      if (!byId.has(id)) {
+        byId.set(id, {
+          id,
+          week: h.week,
+          timestamp: h.timestamp || '',
+          prize: h.prize,
+          qtyPerWinner: Number(h.qty || 1),
+          winners: [],
+          restorable: Boolean(h.id)
+        });
+      }
+      byId.get(id).winners.push(h);
+    }
+
+    return [...byId.values()]
+      .sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+      .slice(0, limit);
+  }
+
+  async function undoPrizeDraw(drawId) {
+    const entries = state.prizes.history.filter(h => h.id === drawId);
+    if (!entries.length) throw new Error('That prize draw could not be found.');
+
+    const prizeName = entries[0].prize;
+    const prize = getPrize(prizeName);
+    const restoreQty = entries.reduce((sum, h) => sum + Number(h.qty || 0), 0);
+
+    const names = entries.map(h => h.racer).join(', ');
+    if (!confirm(
+      `Undo this prize draw?\n\n` +
+      `Week ${entries[0].week}\n` +
+      `${entries.length} winner(s): ${names}\n` +
+      `Restore ${restoreQty}x ${prizeName} to inventory\n\n` +
+      `This removes only this draw from RaceIQ history.`
+    )) return false;
+
+    await createSnapshot('before_undo_prize_draw');
+
+    state.prizes.history = state.prizes.history.filter(h => h.id !== drawId);
+
+    if (prize) {
+      prize.stock = Number(prize.stock || 0) + restoreQty;
+    }
+
+    await saveState(false);
+    return true;
+  }
+
   async function drawWeeklyPrize(week, prizeName, winnerCount) {
     const eligible = eligibleForWeeklyDraw(week);
     if (!eligible.length) throw new Error(`Week ${week} has no eligible finished racers.`);
@@ -1318,6 +1371,28 @@
       </tr>
     `).join('');
 
+    const recentDraws = groupedPrizeDraws().map(draw => {
+      const winnerNames = draw.winners.map(w => esc(w.racer)).join(', ');
+      const totalQty = draw.winners.reduce((sum,w) => sum + Number(w.qty || 0), 0);
+      return `
+        <div class="ri-race-card">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">Week ${draw.week} — ${esc(draw.prize)}</div>
+              <div class="ri-small">${draw.winners.length} winner(s) • ${totalQty}x total</div>
+            </div>
+            <span class="ri-pill">${draw.timestamp ? new Date(draw.timestamp).toLocaleString() : 'Saved draw'}</span>
+          </div>
+          <div class="ri-small" style="margin-top:8px">${winnerNames}</div>
+          ${draw.restorable ? `
+            <div class="ri-race-actions">
+              <button class="ri-btn danger" data-action="undo-prize-draw" data-draw-id="${esc(draw.id)}">Undo Draw</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
     return `
       <div class="ri-card">
         <h3>Weekly Prize Draw</h3>
@@ -1356,11 +1431,11 @@
       </div>
 
       <div class="ri-card">
-        <h3>Recent Winners</h3>
-        <table class="ri-table">
-          <thead><tr><th>Week</th><th>Racer</th><th>Prize</th></tr></thead>
-          <tbody>${hist || '<tr><td colspan="3">No prize draws yet.</td></tr>'}</tbody>
-        </table>
+        <h3>Recent Draws</h3>
+        <div class="ri-small">Undo restores the deducted prize stock and removes only that draw from RaceIQ history.</div><br>
+        <div class="ri-race-list">
+          ${recentDraws || '<div class="ri-small">No prize draws yet.</div>'}
+        </div>
         <br>
         <button class="ri-btn secondary" data-action="copy-prize-winners">Copy Winners</button>
       </div>
@@ -1646,6 +1721,13 @@
             .join('\n');
 
           alert(`Week ${week} Eligible Prize Pool — ${eligible.length} racers\n\n${names}`);
+          return;
+        }
+
+        if (action === 'undo-prize-draw') {
+          const drawId = btn.dataset.drawId;
+          const undone = await undoPrizeDraw(drawId);
+          if (undone) toast('Prize draw undone and stock restored.');
           return;
         }
 
