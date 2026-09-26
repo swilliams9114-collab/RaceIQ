@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.2
+// @version      1.0.3
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.2',
+    version: '1.0.3',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -306,23 +306,94 @@
     return normalizeRaceList(await apiGet('/racing/races?cat=custom&limit=100&sort=DESC'));
   }
 
-  async function findRaceByTitle(title) {
-    const races = await fetchLatestCustomRaces();
+  function bestTitleMatch(races, title) {
     const expected = normTitle(title);
     let matches = races.filter(r => normTitle(r.title) === expected);
+
     if (!matches.length) {
       matches = races.filter(r => {
         const a = normTitle(r.title);
         return a && expected && (a.includes(expected) || expected.includes(a));
       });
     }
+
     matches.sort((a,b) => {
       const rank = s => normalizeStatus(s) === 'in_progress' ? 3 :
         normalizeStatus(s) === 'open' ? 2 :
         normalizeStatus(s) === 'finished' ? 1 : 0;
       return rank(b.status) - rank(a.status) || Number(b.id) - Number(a.id);
     });
+
     return matches[0] || null;
+  }
+
+  function raceScheduledTimestamp(date, time = '2200') {
+    const d = String(date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 0;
+
+    const digits = String(time || '2200').replace(/\D/g, '').padStart(4, '0').slice(-4);
+    const hh = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    const ms = Date.parse(`${d}T${hh}:${mm}:00Z`);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
+  }
+
+  async function fetchCustomRacesWindow(fromTs, toTs) {
+    return normalizeRaceList(await apiGet(
+      `/racing/races?cat=custom&limit=100&sort=DESC&from=${fromTs}&to=${toTs}`
+    ));
+  }
+
+  async function searchHistoricalRaceByTitle(title, date, time = '2200') {
+    const center = raceScheduledTimestamp(date, time);
+    if (!center) return null;
+
+    const windows = [
+      [center - 90 * 60, center + 90 * 60],
+      [center - 4 * 60 * 60, center + 4 * 60 * 60],
+      [center - 12 * 60 * 60, center + 12 * 60 * 60]
+    ];
+
+    let calls = 0;
+    const maxCalls = 16;
+
+    async function searchWindow(fromTs, toTs, depth = 0) {
+      if (calls >= maxCalls) return null;
+      calls++;
+
+      const races = await fetchCustomRacesWindow(fromTs, toTs);
+      const found = bestTitleMatch(races, title);
+      if (found) return found;
+
+      if (races.length >= 100 && depth < 5 && (toTs - fromTs) > 15 * 60) {
+        const mid = Math.floor((fromTs + toTs) / 2);
+        const newer = await searchWindow(mid + 1, toTs, depth + 1);
+        if (newer) return newer;
+        return await searchWindow(fromTs, mid, depth + 1);
+      }
+
+      return null;
+    }
+
+    for (const [fromTs, toTs] of windows) {
+      const found = await searchWindow(fromTs, toTs);
+      if (found) return found;
+      if (calls >= maxCalls) break;
+    }
+
+    return null;
+  }
+
+  async function findRaceByTitle(title, preferredDate = '', preferredTime = '2200') {
+    const latest = await fetchLatestCustomRaces();
+    const recent = bestTitleMatch(latest, title);
+    if (recent) return recent;
+
+    if (preferredDate) {
+      return await searchHistoricalRaceByTitle(title, preferredDate, preferredTime);
+    }
+
+    return null;
   }
 
   async function fetchRace(raceId) {
@@ -475,8 +546,13 @@
     if (!target) throw new Error('Race setup entry not found.');
     if (!target.name.trim()) throw new Error('Enter the race name first.');
 
-    const found = await findRaceByTitle(target.name);
-    if (!found) throw new Error(`Could not find "${target.name}" in Torn's latest custom races.`);
+    const found = await findRaceByTitle(target.name, target.date, target.time);
+    if (!found) {
+      const hint = target.date
+        ? `I searched recent races and around ${target.date} at ${target.time || '2200'} TCT.`
+        : 'This is probably an older race. Tap Edit and add the race date, then use Find.';
+      throw new Error(`Could not find "${target.name}". ${hint}`);
+    }
 
     target.raceId = found.id;
     target.status = found.status;
@@ -1033,6 +1109,7 @@
         <td>${r.results.length}</td>
         <td>
           <button class="ri-btn" data-action="sync-race" data-week="${r.week}">Sync</button>
+          <button class="ri-btn secondary" data-action="find-race" data-week="${r.week}">Find</button>
           <button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button>
         </td>
       </tr>`).join('');
@@ -1040,7 +1117,7 @@
     return `
       <div class="ri-card">
         <h3>Qualifying Races</h3>
-        <div class="ri-small">Use Sync on the exact week you want. For older races, enter the Race ID under Edit.</div><br>
+        <div class="ri-small">Use Find to locate a race by name. For older races, add its date in Edit first; RaceIQ searches around the scheduled TCT time.</div><br>
         <table class="ri-table"><thead><tr><th>Wk</th><th>Race</th><th>Status</th><th>Results</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       </div>
       <div class="ri-card">
@@ -1267,6 +1344,23 @@
           const result = await syncRace('qualifying', week);
           const suffix = result.unresolved ? ` • ${result.unresolved} name(s) unresolved` : '';
           toast(`Week ${week}: ${result.imported} racers synced${suffix}`); return;
+        }
+        if (action === 'find-race') {
+          const week = Number(btn.dataset.week);
+          const target = state.qualifying[week - 1];
+
+          if (!target.date) {
+            const date = prompt(
+              `Week ${week} race date (YYYY-MM-DD). RaceIQ uses this to search historical races:`,
+              target.date || ''
+            );
+            if (date === null) return;
+            target.date = date.trim();
+            await saveState(false);
+          }
+
+          const found = await linkRace('qualifying', week);
+          toast(`Week ${week}: linked Race ID ${found.id}`); return;
         }
         if (action === 'sync-all') {
           for (let w=1; w<=8; w++) {
