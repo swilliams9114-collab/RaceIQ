@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.4
+// @version      1.0.5
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.4',
+    version: '1.0.5',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -181,6 +181,39 @@
     if ((r.results || []).length > 0) return 'SYNCED';
     if (String(r.raceId || '').trim()) return 'LINKED';
     return 'MISSING';
+  }
+
+  function raceDateTimeMs(race) {
+    const date = String(race?.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 0;
+
+    const digits = String(race?.time || '2200').replace(/\D/g, '').padStart(4, '0').slice(-4);
+    const hh = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+
+    // Torn City Time is UTC.
+    const ms = Date.parse(`${date}T${hh}:${mm}:00Z`);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function countdownText(race) {
+    const target = raceDateTimeMs(race);
+    if (!target) return 'Set race date to enable countdown';
+
+    const diff = target - Date.now();
+    if (diff <= 0) {
+      if (displayStatus(race?.status) === 'Completed') return 'Race completed';
+      return 'Scheduled time has passed';
+    }
+
+    const totalMinutes = Math.floor(diff / 60000);
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
   }
 
 
@@ -869,6 +902,7 @@
     out += `Upgrades: ${state.season.noUpgrades ? 'Not Allowed' : 'Allowed'}\n`;
     out += `Password: ${race.password || 'TBD'}\n\n`;
     out += `Top 8 after Week 8 advance to the Championship.`;
+    out += `\nThis is qualifying race ${week} of ${state.season.qualifyingWeeks}.`;
     if (eighth) out += `\nCurrent cutoff: #8 ${eighth.name} — ${eighth.total} pts`;
     if (ninth) out += `\nBubble: #9 ${ninth.name} — ${ninth.total} pts`;
     const xanax = getPrize('Xanax');
@@ -1044,6 +1078,8 @@
       .ri-pill.bad{border-color:#693a3a}
       .ri-race-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
       .ri-race-actions .ri-btn{flex:1;min-width:78px;margin:0}
+      .ri-countdown{font-size:26px;font-weight:800;line-height:1.1;margin:6px 0}
+      .ri-next-meta{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
       @media(max-width:420px){.ri-grid{grid-template-columns:1fr 1fr}.ri-body{padding:9px}.ri-card{padding:10px}}
     `;
     document.head.appendChild(style);
@@ -1099,6 +1135,7 @@
     const race = state.qualifying[week-1];
     const progress = qualifyingProgress();
     const pct = Math.round((progress.synced / state.season.qualifyingWeeks) * 100);
+    const countdown = countdownText(race);
 
     return `
       <div class="ri-card">
@@ -1110,23 +1147,39 @@
           <div class="ri-stat">Tracked Racers<b>${standings.length}</b></div>
         </div>
       </div>
+
       <div class="ri-card">
         <h3>Season Progress</h3>
         <div class="ri-small">${progress.synced}/8 qualifying races loaded • ${progress.linked}/8 linked</div>
         <div class="ri-progress"><span style="width:${pct}%"></span></div>
       </div>
+
       <div class="ri-card">
-        <h3>Current / Next Race</h3>
-        <b>${esc(race?.name || 'Not configured')}</b><br>
-        <span class="ri-muted">${esc(race?.track || 'Track TBD')} • ${esc(race?.laps || 60)} laps • Class ${esc(race?.raceClass || 'E')}</span><br>
-        <span class="ri-small">Status: ${esc(race?.status || 'Planned')} ${race?.raceId ? `• Race ID ${esc(race.raceId)}` : ''}</span><br><br>
+        <h3>Next Race — Week ${week}</h3>
+        <div class="ri-race-title">${esc(race?.name || `AS Week ${week} ${state.season.name}`)}</div>
+        <div class="ri-countdown">${esc(countdown)}</div>
+
+        <div class="ri-next-meta">
+          <span class="ri-pill">${race?.date ? esc(race.date) : 'Date TBD'}</span>
+          <span class="ri-pill">${esc(race?.time || '2200')} TCT</span>
+          <span class="ri-pill">${esc(race?.track || 'Track TBD')}</span>
+          <span class="ri-pill">${esc(race?.laps || 60)} laps</span>
+          <span class="ri-pill">Class ${esc(race?.raceClass || 'E')}</span>
+          <span class="ri-pill">${state.season.noUpgrades ? 'No Upgrades' : 'Upgrades Allowed'}</span>
+        </div>
+
+        <div class="ri-race-actions">
+          <button class="ri-btn" data-action="edit-current-race">Set Up Week ${week}</button>
+          <button class="ri-btn secondary" data-action="announcement-current">Copy Announcement</button>
+          <button class="ri-btn secondary" data-action="announcement-short">Copy Reminder</button>
+        </div>
+      </div>
+
+      <div class="ri-card">
+        <h3>Race Operations</h3>
         <button class="ri-btn" data-action="sync-current">Sync Current Race</button>
         <button class="ri-btn secondary" data-action="link-current">Find / Link Race</button>
-      </div>
-      <div class="ri-card">
-        <h3>Quick Actions</h3>
         <button class="ri-btn secondary" data-action="copy-top8">Copy Top 8</button>
-        <button class="ri-btn secondary" data-action="announcement-current">Generate Race Message</button>
         <button class="ri-btn secondary" data-action="diagnostics">Run Diagnostics</button>
       </div>`;
   }
@@ -1153,6 +1206,7 @@
             <button class="ri-btn" data-action="sync-race" data-week="${r.week}">Sync</button>
             <button class="ri-btn secondary" data-action="find-race" data-week="${r.week}">Find</button>
             <button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button>
+            <button class="ri-btn secondary" data-action="announce-race" data-week="${r.week}">Message</button>
           </div>
         </div>`;
     }).join('');
@@ -1379,6 +1433,9 @@
           const r = await linkRace('qualifying', week);
           toast(`Linked Week ${week}: Race ${r.id}`); return;
         }
+        if (action === 'edit-current-race') {
+          await editRace(currentQualifyingWeek()); return;
+        }
         if (action === 'sync-current') {
           const week = currentQualifyingWeek();
           const result = await syncRace('qualifying', week);
@@ -1424,6 +1481,10 @@
           toast('Available races synced.'); return;
         }
         if (action === 'edit-race') { await editRace(Number(btn.dataset.week)); return; }
+        if (action === 'announce-race') {
+          const week = Number(btn.dataset.week);
+          previewAndCopy(raceAnnouncement(week, false), `Week ${week} Race Announcement`); return;
+        }
         if (action === 'copy-top8') { await copyText(shareTop8()); return; }
         if (action === 'copy-full') { await copyText(shareFullStandings()); return; }
         if (action === 'copy-results') { await copyText(shareWeekResults(Number(btn.dataset.week))); return; }
