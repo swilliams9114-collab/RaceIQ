@@ -4,7 +4,7 @@ RaceIQ is a mobile-first TornPDA userscript for managing the Aurora Surrealis ra
 
 ## Current version
 
-**1.0.0**
+**1.0.2**
 
 ## Core features
 
