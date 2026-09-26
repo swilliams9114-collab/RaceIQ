@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.11
+// @version      1.0.12
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.11',
+    version: '1.0.12',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -89,7 +89,28 @@
       factionOnly: true,
       finishedOnly: true,
       defaultWinners: 5,
-      shareTopCount: 12
+      shareTopCount: 12,
+      announcementTemplate:
+`AURORA SURREALIS — WEEK {week}
+
+Race: {race}
+Date/Time: {date} @ {time} TCT
+Track: {track}
+Laps: {laps}
+Class: {class}
+Upgrades: {upgrades}
+Password: {password}
+
+Top 8 after Week 8 advance to the Championship.
+This is qualifying race {week} of {qualifyingWeeks}.
+{cutoffLine}
+{bubbleLine}
+
+Weekly random prize: {winnerCount} winner(s), {prizeQty}x {prizeName} each.
+
+Join the race, earn points, and fight for a Championship spot!`,
+      reminderTemplate:
+`AS Week {week} — {track}, {laps} laps, Class {class}, {date} @ {time} TCT. {upgradesShort} Password: {password}. Top 8 after Week 8 advance!`
     },
     meta: {
       createdAt: new Date().toISOString(),
@@ -313,6 +334,9 @@
     if (!state.meta) state.meta = clone(DEFAULT_STATE.meta);
     if (!Array.isArray(state.qualifying)) state.qualifying = clone(DEFAULT_STATE.qualifying);
     if (!state.championship) state.championship = clone(DEFAULT_STATE.championship);
+    if (!state.settings || typeof state.settings !== 'object') state.settings = clone(DEFAULT_STATE.settings);
+    if (!state.settings.announcementTemplate) state.settings.announcementTemplate = DEFAULT_STATE.settings.announcementTemplate;
+    if (!state.settings.reminderTemplate) state.settings.reminderTemplate = DEFAULT_STATE.settings.reminderTemplate;
 
     await saveState(false);
   }
@@ -1147,35 +1171,42 @@
     return out;
   }
 
-  function raceAnnouncement(week, short = false) {
+  function renderRaceMessageTemplate(template, week) {
     const race = state.qualifying[week - 1];
     const standings = aggregateQualifying();
     const eighth = standings[7];
     const ninth = standings[8];
+    const xanax = getPrize('Xanax') || {name:'Xanax',qtyPerWinner:1};
 
-    if (short) {
-      return `AS Week ${week} — ${race.track || 'TBD'}, ${race.laps || 60} laps, Class ${race.raceClass || 'E'}, ` +
-        `${race.date || 'date TBD'} @ ${race.time || '2200'} TCT. ` +
-        `${state.season.noUpgrades ? 'NO UPGRADES. ' : ''}` +
-        `Password: ${race.password || 'TBD'}. Top 8 after Week 8 advance!`;
-    }
+    const values = {
+      week,
+      qualifyingWeeks: state.season.qualifyingWeeks,
+      race: race?.name || `AS Week ${week} ${state.season.name}`,
+      date: race?.date || 'TBD',
+      time: race?.time || '2200',
+      track: race?.track || 'TBD',
+      laps: race?.laps || 60,
+      class: race?.raceClass || 'E',
+      upgrades: state.season.noUpgrades ? 'Not Allowed' : 'Allowed',
+      upgradesShort: state.season.noUpgrades ? 'NO UPGRADES.' : 'Upgrades allowed.',
+      password: race?.password || 'TBD',
+      winnerCount: state.settings.defaultWinners,
+      prizeQty: xanax.qtyPerWinner || 1,
+      prizeName: xanax.name || 'Xanax',
+      cutoffLine: eighth ? `Current cutoff: #8 ${eighth.name} — ${eighth.total} pts` : '',
+      bubbleLine: ninth ? `Bubble: #9 ${ninth.name} — ${ninth.total} pts` : ''
+    };
 
-    let out = `AURORA SURREALIS — WEEK ${week}\n\n`;
-    out += `Race: ${race.name}\n`;
-    out += `Date/Time: ${race.date || 'TBD'} @ ${race.time || '2200'} TCT\n`;
-    out += `Track: ${race.track || 'TBD'}\n`;
-    out += `Laps: ${race.laps || 60}\n`;
-    out += `Class: ${race.raceClass || 'E'}\n`;
-    out += `Upgrades: ${state.season.noUpgrades ? 'Not Allowed' : 'Allowed'}\n`;
-    out += `Password: ${race.password || 'TBD'}\n\n`;
-    out += `Top 8 after Week 8 advance to the Championship.`;
-    out += `\nThis is qualifying race ${week} of ${state.season.qualifyingWeeks}.`;
-    if (eighth) out += `\nCurrent cutoff: #8 ${eighth.name} — ${eighth.total} pts`;
-    if (ninth) out += `\nBubble: #9 ${ninth.name} — ${ninth.total} pts`;
-    const xanax = getPrize('Xanax');
-    if (xanax) out += `\n\nWeekly random prize: ${state.settings.defaultWinners} winner(s), ${xanax.qtyPerWinner}x Xanax each.`;
-    out += `\n\nJoin the race, earn points, and fight for a Championship spot!`;
-    return out;
+    return String(template || '').replace(/\{([a-zA-Z0-9]+)\}/g, (_, key) =>
+      Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : `{${key}}`
+    ).replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function raceAnnouncement(week, short = false) {
+    const template = short
+      ? state.settings.reminderTemplate
+      : state.settings.announcementTemplate;
+    return renderRaceMessageTemplate(template, week);
   }
 
   function resultsAnnouncement(week) {
@@ -1404,6 +1435,7 @@
       .ri-btn.secondary{background:#2a3441;color:#eef2f6;border:1px solid #3c4857}
       .ri-btn.danger{background:#7b2b2b;color:#fff}
       .ri-input,.ri-select{width:100%;box-sizing:border-box;background:#10151c;color:#fff;border:1px solid #3b4654;border-radius:8px;padding:9px;margin:3px 0 8px}
+      .ri-textarea{width:100%;min-height:180px;box-sizing:border-box;background:#10151c;color:#fff;border:1px solid #3b4654;border-radius:8px;padding:10px;margin:3px 0 8px;font-family:Arial,sans-serif;line-height:1.35;resize:vertical}
       .ri-label{font-size:11px;color:#aeb8c5;display:block;margin-top:7px}
       .ri-table{width:100%;border-collapse:collapse;font-size:12px}
       .ri-table th,.ri-table td{padding:7px 5px;border-bottom:1px solid #313946;text-align:left}
@@ -1936,6 +1968,27 @@
       </div>
 
       <div class="ri-card">
+        <h3>Message Templates</h3>
+        <div class="ri-small">
+          These templates stay editable. RaceIQ replaces placeholders with the live race setup when you copy a message.
+        </div><br>
+
+        <label class="ri-label">Full race announcement</label>
+        <textarea class="ri-textarea" id="ri-announcement-template">${esc(state.settings.announcementTemplate)}</textarea>
+
+        <label class="ri-label">Short reminder</label>
+        <textarea class="ri-textarea" id="ri-reminder-template">${esc(state.settings.reminderTemplate)}</textarea>
+
+        <div class="ri-small">
+          Available placeholders: {week}, {qualifyingWeeks}, {race}, {date}, {time}, {track}, {laps}, {class},
+          {upgrades}, {upgradesShort}, {password}, {winnerCount}, {prizeQty}, {prizeName}, {cutoffLine}, {bubbleLine}
+        </div><br>
+
+        <button class="ri-btn" data-action="save-message-templates">Save Message Templates</button>
+        <button class="ri-btn secondary" data-action="reset-message-templates">Restore Default Templates</button>
+      </div>
+
+      <div class="ri-card">
         <h3>Backup & Recovery</h3>
 
         <div class="ri-grid">
@@ -2254,6 +2307,30 @@
 
           const restored = await restoreSnapshot(snaps[index].key);
           if (restored) toast('Snapshot restored.');
+          return;
+        }
+
+        if (action === 'save-message-templates') {
+          const full = document.getElementById('ri-announcement-template')?.value ?? '';
+          const short = document.getElementById('ri-reminder-template')?.value ?? '';
+
+          if (!full.trim() || !short.trim()) {
+            throw new Error('Both message templates must contain text.');
+          }
+
+          state.settings.announcementTemplate = full;
+          state.settings.reminderTemplate = short;
+          await saveState(false);
+          toast('Message templates saved.');
+          return;
+        }
+
+        if (action === 'reset-message-templates') {
+          if (!confirm('Restore the default RaceIQ announcement and reminder templates?')) return;
+          state.settings.announcementTemplate = DEFAULT_STATE.settings.announcementTemplate;
+          state.settings.reminderTemplate = DEFAULT_STATE.settings.reminderTemplate;
+          await saveState(false);
+          toast('Default message templates restored.');
           return;
         }
 
