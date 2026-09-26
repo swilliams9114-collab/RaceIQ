@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.0
-// @description  Mobile-first TornPDA race manager: race sync, standings, prizes, Championship, sharing, diagnostics, and backups.
+// @version      1.0.1
+// @description  Mobile-first TornPDA race manager with race sync, resolved racer names, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
 // @author       Aurora Surrealis
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.0',
+    version: '1.0.1',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -84,6 +84,7 @@
     },
     grandPrix: [],
     archives: [],
+    userCache: {},
     settings: {
       factionOnly: true,
       finishedOnly: true,
@@ -99,7 +100,7 @@
   };
 
   let state = null;
-  let factionIndex = { byId: new Set(), byName: new Set(), count: 0, loadedAt: 0 };
+  let factionIndex = { byId: new Set(), byName: new Set(), namesById: new Map(), count: 0, loadedAt: 0 };
   let currentTab = 'home';
   let busy = false;
 
@@ -174,12 +175,18 @@
     if (typeof PDA_storage !== 'undefined') {
       const saved = await PDA_storage.get(APP.storageKey, null);
       state = saved && saved.schema === 1 ? saved : clone(DEFAULT_STATE);
-      await saveState(false);
-      return;
+    } else {
+      // Browser fallback for desktop testing only.
+      const raw = localStorage.getItem(APP.storageKey);
+      state = raw ? JSON.parse(raw) : clone(DEFAULT_STATE);
     }
-    // Browser fallback for desktop testing only.
-    const raw = localStorage.getItem(APP.storageKey);
-    state = raw ? JSON.parse(raw) : clone(DEFAULT_STATE);
+
+    // V1-compatible migration: preserve existing race/prize data.
+    if (!state.userCache || typeof state.userCache !== 'object') state.userCache = {};
+    if (!state.meta) state.meta = clone(DEFAULT_STATE.meta);
+    if (!Array.isArray(state.qualifying)) state.qualifying = clone(DEFAULT_STATE.qualifying);
+    if (!state.championship) state.championship = clone(DEFAULT_STATE.championship);
+
     await saveState(false);
   }
 
@@ -238,7 +245,9 @@
   }
 
   async function fetchFactionMembers(force = false) {
-    if (!force && factionIndex.count && Date.now() - factionIndex.loadedAt < 10 * 60 * 1000) return factionIndex;
+    if (!force && factionIndex.count && Date.now() - factionIndex.loadedAt < 10 * 60 * 1000) {
+      return factionIndex;
+    }
 
     const data = await apiGet('/faction/members');
     const raw = data?.members ?? data?.faction?.members ?? [];
@@ -248,19 +257,29 @@
 
     const byId = new Set();
     const byName = new Set();
+    const namesById = new Map();
+
     arr.forEach(m => {
       const id = String(m?.id ?? m?.user_id ?? m?.player_id ?? '').trim();
-      const name = normName(m?.name ?? m?.user_name ?? m?.player_name ?? '');
+      const rawName = String(m?.name ?? m?.user_name ?? m?.player_name ?? '').trim();
+      const name = normName(rawName);
+
       if (id) byId.add(id);
       if (name) byName.add(name);
+      if (id && rawName) {
+        namesById.set(id, rawName);
+        state.userCache[id] = rawName;
+      }
     });
 
     factionIndex = {
       byId,
       byName,
+      namesById,
       count: Math.max(byId.size, byName.size),
       loadedAt: Date.now()
     };
+
     state.meta.lastFactionSync = new Date().toISOString();
     await saveState(false);
     return factionIndex;
@@ -340,6 +359,58 @@
     })).filter(r => r.id || r.name);
   }
 
+  function extractBasicUser(payload, fallbackId = '') {
+    const candidates = [
+      payload?.profile,
+      payload?.basic,
+      payload?.user,
+      payload?.player,
+      payload
+    ].filter(Boolean);
+
+    for (const item of candidates) {
+      const id = String(item?.id ?? item?.user_id ?? item?.player_id ?? fallbackId ?? '').trim();
+      const name = String(item?.name ?? item?.user_name ?? item?.player_name ?? '').trim();
+      if (name) return {id, name};
+    }
+
+    return {id: String(fallbackId || ''), name: ''};
+  }
+
+  async function resolveRacerNames(racers) {
+    const resolved = [];
+
+    for (const racer of racers) {
+      const copy = {...racer};
+      const id = String(copy.id || '').trim();
+
+      if (!copy.name && id) {
+        copy.name =
+          factionIndex.namesById?.get(id) ||
+          state.userCache?.[id] ||
+          '';
+      }
+
+      if (!copy.name && id) {
+        try {
+          const data = await apiGet(`/user/${encodeURIComponent(id)}/basic`);
+          const user = extractBasicUser(data, id);
+          if (user.name) {
+            copy.name = user.name;
+            state.userCache[id] = user.name;
+          }
+        } catch (e) {
+          console.warn(`[RaceIQ] Could not resolve racer name for ${id}`, e);
+        }
+      }
+
+      if (copy.name && id) state.userCache[id] = copy.name;
+      resolved.push(copy);
+    }
+
+    return resolved;
+  }
+
   // ---------- race sync ----------
   async function linkRace(kind, week) {
     const target = kind === 'qualifying'
@@ -370,8 +441,9 @@
     const race = await fetchRace(target.raceId);
     const all = extractRacers(race);
     const eligible = all.filter(r => !state.settings.factionOnly || isFactionMember(r));
+    const named = await resolveRacerNames(eligible);
 
-    target.results = eligible
+    target.results = named
       .filter(r => !state.settings.finishedOnly || r.position > 0)
       .map(r => ({
         id: r.id,
@@ -390,9 +462,12 @@
     }
 
     await saveState(false);
+
+    const unresolved = target.results.filter(r => !r.name).length;
     return {
       imported: target.results.length,
       skipped: Math.max(0, all.length - eligible.length),
+      unresolved,
       status: target.status
     };
   }
@@ -400,25 +475,46 @@
   // ---------- standings ----------
   function aggregateQualifying() {
     const map = new Map();
+    const nameToId = new Map();
+
+    for (const race of state.qualifying) {
+      for (const result of race.results) {
+        const id = String(result.id || '').trim();
+        const name = String(result.name || state.userCache?.[id] || '').trim();
+        if (id && name) nameToId.set(normName(name), id);
+      }
+    }
 
     for (const race of state.qualifying) {
       race.results.forEach(result => {
-        if (!result.name || !result.finish) return;
-        const key = result.id ? `id:${result.id}` : `name:${normName(result.name)}`;
+        if (!result.finish) return;
+
+        const rawId = String(result.id || '').trim();
+        const cachedName = rawId ? state.userCache?.[rawId] : '';
+        const name = String(result.name || cachedName || '').trim();
+        const inferredId = rawId || (name ? nameToId.get(normName(name)) : '') || '';
+
+        const key = inferredId
+          ? `id:${inferredId}`
+          : name
+          ? `name:${normName(name)}`
+          : '';
+
+        if (!key) return;
 
         let entry = map.get(key);
         if (!entry) {
           entry = {
-            id: result.id || '',
-            name: result.name,
+            id: inferredId,
+            name: name || (inferredId ? `Player ${inferredId}` : 'Unknown Racer'),
             finishes: Array(8).fill(null),
             pointsByWeek: Array(8).fill(0)
           };
           map.set(key, entry);
         }
 
-        entry.name = result.name || entry.name;
-        if (result.id) entry.id = result.id;
+        if (name) entry.name = name;
+        if (inferredId) entry.id = inferredId;
         entry.finishes[race.week - 1] = result.finish;
         entry.pointsByWeek[race.week - 1] = pointsForFinish(result.finish);
       });
@@ -711,11 +807,27 @@
     const dupes = names.filter((n,i) => names.indexOf(n) !== i);
     push('No duplicate standings racers', dupes.length === 0, dupes.length ? [...new Set(dupes)].join(', ') : 'No duplicates');
 
-    const bad = [];
+    const missingNames = [];
+    const badFinish = [];
+
     state.qualifying.forEach(r => r.results.forEach(x => {
-      if (!x.name || !x.finish || x.finish < 1) bad.push(`W${r.week}:${x.name || '?'}`);
+      if (!x.name) missingNames.push(`W${r.week}:${x.id || '?'}`);
+      if (!x.finish || x.finish < 1) badFinish.push(`W${r.week}:${x.name || x.id || '?'}`);
     }));
-    push('Valid qualifying results', bad.length === 0, bad.length ? bad.join(', ') : 'All stored results have a racer and finish');
+
+    push(
+      'Racer names resolved',
+      missingNames.length === 0,
+      missingNames.length
+        ? `${missingNames.length} result(s) missing a name: ${missingNames.slice(0, 8).join(', ')}${missingNames.length > 8 ? '…' : ''}`
+        : 'All stored racers have names'
+    );
+
+    push(
+      'Valid qualifying finishes',
+      badFinish.length === 0,
+      badFinish.length ? badFinish.join(', ') : 'All stored results have a valid finish'
+    );
 
     const result = rows.map(r => `${r.status}: ${r.name} — ${r.detail}`).join('\n');
     await saveState(false);
@@ -851,19 +963,25 @@
     const rows = state.qualifying.map(r => `
       <tr>
         <td>${r.week}</td>
-        <td>${esc(r.name)}</td>
+        <td>
+          ${esc(r.name)}
+          ${r.raceId ? `<div class="ri-small">ID ${esc(r.raceId)}</div>` : ''}
+        </td>
         <td>${esc(r.status)}</td>
         <td>${r.results.length}</td>
-        <td><button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button></td>
+        <td>
+          <button class="ri-btn" data-action="sync-race" data-week="${r.week}">Sync</button>
+          <button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button>
+        </td>
       </tr>`).join('');
 
     return `
       <div class="ri-card">
         <h3>Qualifying Races</h3>
+        <div class="ri-small">Use Sync on the exact week you want. For older races, enter the Race ID under Edit.</div><br>
         <table class="ri-table"><thead><tr><th>Wk</th><th>Race</th><th>Status</th><th>Results</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       </div>
       <div class="ri-card">
-        <button class="ri-btn" data-action="sync-current">Sync Current Race</button>
         <button class="ri-btn secondary" data-action="sync-all">Sync All Linked Races</button>
       </div>`;
   }
@@ -1082,10 +1200,16 @@
           const result = await syncRace('qualifying', week);
           toast(`Week ${week}: ${result.imported} racers synced`); return;
         }
+        if (action === 'sync-race') {
+          const week = Number(btn.dataset.week);
+          const result = await syncRace('qualifying', week);
+          const suffix = result.unresolved ? ` • ${result.unresolved} name(s) unresolved` : '';
+          toast(`Week ${week}: ${result.imported} racers synced${suffix}`); return;
+        }
         if (action === 'sync-all') {
           for (let w=1; w<=8; w++) {
             const r = state.qualifying[w-1];
-            if (!r.raceId && !r.name) continue;
+            if (!r.raceId) continue;
             try { await syncRace('qualifying', w); } catch (e) { console.warn(`Week ${w}`, e); }
           }
           toast('Available races synced.'); return;
