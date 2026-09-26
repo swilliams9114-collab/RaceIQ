@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.5
+// @version      1.0.6
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.5',
+    version: '1.0.6',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -787,13 +787,41 @@
     return (race?.results || []).filter(r => r.name && r.finish > 0);
   }
 
+  function secureRandomInt(maxExclusive) {
+    if (maxExclusive <= 1) return 0;
+
+    if (window.crypto?.getRandomValues) {
+      const limit = Math.floor(0x100000000 / maxExclusive) * maxExclusive;
+      const buf = new Uint32Array(1);
+      let value;
+      do {
+        window.crypto.getRandomValues(buf);
+        value = buf[0];
+      } while (value >= limit);
+      return value % maxExclusive;
+    }
+
+    return Math.floor(Math.random() * maxExclusive);
+  }
+
   function randomUnique(items, count) {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = secureRandomInt(i + 1);
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr.slice(0, Math.min(count, arr.length));
+  }
+
+  function latestSyncedQualifyingWeek() {
+    const synced = state.qualifying
+      .filter(r => (r.results || []).length > 0)
+      .map(r => r.week);
+    return synced.length ? Math.max(...synced) : 1;
+  }
+
+  function drawHistoryForWeek(week) {
+    return state.prizes.history.filter(h => Number(h.week) === Number(week));
   }
 
   async function drawWeeklyPrize(week, prizeName, winnerCount) {
@@ -804,6 +832,10 @@
     if (!prize) throw new Error(`Prize "${prizeName}" is not configured.`);
 
     const winners = Math.max(1, Number(winnerCount) || 1);
+    if (winners > eligible.length) {
+      throw new Error(`Week ${week} only has ${eligible.length} eligible racers, so you cannot draw ${winners} unique winners.`);
+    }
+
     const totalQty = winners * Number(prize.qtyPerWinner || 1);
     const available = Number(prize.stock || 0) - Number(prize.reserve || 0);
     if (available < totalQty) {
@@ -832,7 +864,9 @@
         racerId: winner.id,
         racer: winner.name,
         prize: prize.name,
-        qty: Number(prize.qtyPerWinner || 1)
+        qty: Number(prize.qtyPerWinner || 1),
+        eligibleCount: eligible.length,
+        randomSource: window.crypto?.getRandomValues ? 'crypto' : 'math'
       });
     });
 
@@ -1247,30 +1281,90 @@
   }
 
   function prizesView() {
-    const inv = state.prizes.inventory.map((p,i) => `
-      <tr><td>${esc(p.name)}</td><td>${p.stock}</td><td>${p.qtyPerWinner}</td><td>${p.reserve}</td><td><button class="ri-btn secondary" data-action="edit-prize" data-index="${i}">Edit</button></td></tr>
-    `).join('');
-    const hist = state.prizes.history.slice(-10).reverse().map(h => `
-      <tr><td>W${h.week}</td><td>${esc(h.racer)}</td><td>${h.qty}x ${esc(h.prize)}</td></tr>
+    const defaultWeek = latestSyncedQualifyingWeek();
+    const defaultEligible = eligibleForWeeklyDraw(defaultWeek);
+    const defaultPrize = state.prizes.inventory[0] || {name:'',stock:0,qtyPerWinner:1,reserve:0};
+    const available = Math.max(0, Number(defaultPrize.stock || 0) - Number(defaultPrize.reserve || 0));
+    const needed = Number(state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
+    const priorDraws = drawHistoryForWeek(defaultWeek);
+
+    const inv = state.prizes.inventory.map((p,i) => {
+      const usable = Math.max(0, Number(p.stock || 0) - Number(p.reserve || 0));
+      return `
+        <div class="ri-race-card">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">${esc(p.name)}</div>
+              <div class="ri-small">${usable} available above reserve</div>
+            </div>
+            <span class="ri-pill">${p.stock} stock</span>
+          </div>
+          <div class="ri-race-meta">
+            <span class="ri-pill">${p.qtyPerWinner} / winner</span>
+            <span class="ri-pill">${p.reserve} reserve</span>
+          </div>
+          <div class="ri-race-actions">
+            <button class="ri-btn secondary" data-action="edit-prize" data-index="${i}">Edit Prize</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const hist = state.prizes.history.slice(-12).reverse().map(h => `
+      <tr>
+        <td>W${h.week}</td>
+        <td>${esc(h.racer)}</td>
+        <td>${h.qty}x ${esc(h.prize)}</td>
+      </tr>
     `).join('');
 
     return `
       <div class="ri-card">
-        <h3>Prize Inventory</h3>
-        <table class="ri-table"><thead><tr><th>Prize</th><th>Stock</th><th>/ Winner</th><th>Reserve</th><th></th></tr></thead><tbody>${inv}</tbody></table>
-        <button class="ri-btn secondary" data-action="add-prize">Add Prize</button>
-      </div>
-      <div class="ri-card">
-        <h3>Weekly Random Draw</h3>
+        <h3>Weekly Prize Draw</h3>
+        <div class="ri-grid">
+          <div class="ri-stat">Eligible<b id="ri-eligible-count">${defaultEligible.length}</b></div>
+          <div class="ri-stat">Prior Winners<b id="ri-prior-count">${priorDraws.length}</b></div>
+          <div class="ri-stat">Available<b id="ri-available-count">${available}</b></div>
+          <div class="ri-stat">Needed<b id="ri-needed-count">${needed}</b></div>
+        </div>
+
         <label class="ri-label">Week</label>
-        <select class="ri-select" id="ri-draw-week">${state.qualifying.map(r=>`<option value="${r.week}">Week ${r.week}</option>`).join('')}</select>
+        <select class="ri-select" id="ri-draw-week">
+          ${state.qualifying.map(r=>`<option value="${r.week}" ${r.week===defaultWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+        </select>
+
         <label class="ri-label">Prize</label>
-        <select class="ri-select" id="ri-draw-prize">${state.prizes.inventory.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')}</select>
+        <select class="ri-select" id="ri-draw-prize">
+          ${state.prizes.inventory.map((p,i)=>`<option value="${esc(p.name)}" ${i===0?'selected':''}>${esc(p.name)}</option>`).join('')}
+        </select>
+
         <label class="ri-label">Number of winners</label>
         <input class="ri-input" id="ri-draw-count" type="number" min="1" value="${state.settings.defaultWinners}">
+
+        <div class="ri-small" id="ri-draw-summary">
+          Equal chance for every eligible racer who finished Week ${defaultWeek}. Winners are unique within this draw.
+        </div><br>
+
+        <button class="ri-btn" data-action="preview-prize-pool">View Eligible Racers</button>
         <button class="ri-btn" data-action="draw-prize">Run Random Draw</button>
       </div>
-      <div class="ri-card"><h3>Recent Winners</h3><table class="ri-table"><tbody>${hist || '<tr><td>No prize draws yet.</td></tr>'}</tbody></table></div>`;
+
+      <div class="ri-card">
+        <h3>Prize Inventory</h3>
+        <div class="ri-race-list">${inv || '<div class="ri-small">No prizes configured.</div>'}</div><br>
+        <button class="ri-btn secondary" data-action="add-prize">Add Prize</button>
+      </div>
+
+      <div class="ri-card">
+        <h3>Recent Winners</h3>
+        <table class="ri-table">
+          <thead><tr><th>Week</th><th>Racer</th><th>Prize</th></tr></thead>
+          <tbody>${hist || '<tr><td colspan="3">No prize draws yet.</td></tr>'}</tbody>
+        </table>
+        <br>
+        <button class="ri-btn secondary" data-action="copy-prize-winners">Copy Winners</button>
+      </div>
+    `;
   }
 
   function champView() {
@@ -1421,6 +1515,46 @@
       btn.addEventListener('click', () => { currentTab = btn.dataset.tab; render(); });
     });
 
+    const drawWeekEl = document.getElementById('ri-draw-week');
+    const drawPrizeEl = document.getElementById('ri-draw-prize');
+    const drawCountEl = document.getElementById('ri-draw-count');
+
+    const refreshDrawSummary = () => {
+      if (!drawWeekEl || !drawPrizeEl || !drawCountEl) return;
+
+      const week = Number(drawWeekEl.value);
+      const prize = getPrize(drawPrizeEl.value);
+      const count = Math.max(1, Number(drawCountEl.value) || 1);
+      const eligible = eligibleForWeeklyDraw(week);
+      const usable = prize ? Math.max(0, Number(prize.stock || 0) - Number(prize.reserve || 0)) : 0;
+      const needed = prize ? count * Number(prize.qtyPerWinner || 1) : 0;
+      const prior = drawHistoryForWeek(week).length;
+
+      const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+      };
+
+      setText('ri-eligible-count', eligible.length);
+      setText('ri-prior-count', prior);
+      setText('ri-available-count', usable);
+      setText('ri-needed-count', needed);
+
+      const summary = document.getElementById('ri-draw-summary');
+      if (summary) {
+        summary.textContent =
+          `Equal chance for ${eligible.length} eligible Week ${week} racer(s). ` +
+          `${count} unique winner(s), ${prize?.qtyPerWinner || 1}x ${prize?.name || 'prize'} each.`;
+      }
+    };
+
+    [drawWeekEl, drawPrizeEl, drawCountEl].forEach(el => {
+      if (el) {
+        el.addEventListener('change', refreshDrawSummary);
+        el.addEventListener('input', refreshDrawSummary);
+      }
+    });
+
     document.querySelectorAll(`#${APP.panelId} [data-action]`).forEach(btn => {
       btn.addEventListener('click', () => runBusy(async () => {
         const action = btn.dataset.action;
@@ -1500,6 +1634,21 @@
         }
         if (action === 'edit-prize') { await editPrize(Number(btn.dataset.index)); return; }
         if (action === 'add-prize') { await addPrize(); return; }
+        if (action === 'preview-prize-pool') {
+          const week = Number(document.getElementById('ri-draw-week').value);
+          const eligible = eligibleForWeeklyDraw(week);
+          if (!eligible.length) throw new Error(`Week ${week} has no eligible finished racers.`);
+
+          const names = eligible
+            .slice()
+            .sort((a,b) => a.name.localeCompare(b.name))
+            .map((r,i) => `${i+1}. ${r.name}`)
+            .join('\n');
+
+          alert(`Week ${week} Eligible Prize Pool — ${eligible.length} racers\n\n${names}`);
+          return;
+        }
+
         if (action === 'draw-prize') {
           const week = Number(document.getElementById('ri-draw-week').value);
           const prize = document.getElementById('ri-draw-prize').value;
