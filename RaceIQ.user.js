@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.12
+// @version      1.0.13
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,12 +18,14 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.12',
+    version: '1.0.13',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
     snapshotPrefix: 'raceiq_snapshot_',
     buttonId: 'raceiq-floating-button',
+    navWrapperId: 'raceiq-nav-wrapper',
+    navButtonId: 'raceiq-nav-car',
     panelId: 'raceiq-panel',
     styleId: 'raceiq-style',
     defaultSeason: 'Season 1',
@@ -1413,6 +1415,35 @@ Join the race, earn points, and fight for a Championship spot!`,
         background:#20242b;color:#fff;font-weight:800;font-size:13px;
         box-shadow:0 4px 18px rgba(0,0,0,.45);
       }
+      #${APP.navWrapperId}{
+        list-style:none;
+        display:flex;
+        align-items:center;
+        justify-content:center
+      }
+      #${APP.navButtonId}{
+        position:relative;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        width:34px;
+        height:34px;
+        padding:0;
+        margin:0;
+        border:0;
+        background:transparent;
+        color:inherit;
+        cursor:pointer
+      }
+      #${APP.navButtonId} svg{
+        width:22px;
+        height:22px;
+        display:block;
+        fill:currentColor
+      }
+      #${APP.navButtonId}:active{
+        transform:scale(.94)
+      }
       #${APP.panelId}{
         position:fixed;inset:0;z-index:2147483646;background:#11151b;
         color:#eef2f6;font-family:Arial,sans-serif;display:none;overflow:auto;
@@ -1473,6 +1504,52 @@ Join the race, earn points, and fight for a Championship spot!`,
     document.head.appendChild(style);
   }
 
+  function carIconSvg() {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M18.92 6.01A2 2 0 0 0 17.03 4.7H6.97a2 2 0 0 0-1.89 1.31L3.5 10.5A2.5 2.5 0 0 0 2 12.79V17a1 1 0 0 0 1 1h1v1.25a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75V18h10v1.25a.75.75 0 0 0 .75.75h1.5a.75.75 0 0 0 .75-.75V18h1a1 1 0 0 0 1-1v-4.21a2.5 2.5 0 0 0-1.5-2.29l-1.58-4.49ZM6.97 6.7h10.06l1.18 3.35H5.79L6.97 6.7ZM6.25 15.5A1.25 1.25 0 1 1 6.25 13a1.25 1.25 0 0 1 0 2.5Zm11.5 0A1.25 1.25 0 1 1 17.75 13a1.25 1.25 0 0 1 0 2.5Z"/>
+      </svg>
+    `;
+  }
+
+  function toggleRaceIQPanel() {
+    const panel = document.getElementById(APP.panelId);
+    if (!panel) return;
+
+    const opening = !panel.classList.contains('open');
+    panel.classList.toggle('open', opening);
+
+    if (opening) render();
+  }
+
+  function ensureNavLauncher() {
+    if (document.getElementById(APP.navWrapperId)) return true;
+
+    // Proven Torn mobile header anchor used by RestockIQ:
+    // insert directly before the global-search <li>.
+    const searchWrapper = document.querySelector('li.find-wrapper');
+    if (!searchWrapper?.parentNode) return false;
+
+    const wrapper = document.createElement('li');
+    wrapper.id = APP.navWrapperId;
+
+    const button = document.createElement('button');
+    button.id = APP.navButtonId;
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Open RaceIQ');
+    button.setAttribute('title', 'RaceIQ');
+    button.innerHTML = carIconSvg();
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleRaceIQPanel();
+    });
+
+    wrapper.appendChild(button);
+    searchWrapper.parentNode.insertBefore(wrapper, searchWrapper);
+    return true;
+  }
+
   function createUI() {
     injectStyle();
 
@@ -1480,10 +1557,8 @@ Join the race, earn points, and fight for a Championship spot!`,
       const btn = document.createElement('button');
       btn.id = APP.buttonId;
       btn.textContent = 'RACE';
-      btn.addEventListener('click', () => {
-        document.getElementById(APP.panelId)?.classList.add('open');
-        render();
-      });
+      btn.setAttribute('aria-label', 'Open RaceIQ fallback launcher');
+      btn.addEventListener('click', toggleRaceIQPanel);
       document.body.appendChild(btn);
     }
 
@@ -1492,6 +1567,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       panel.id = APP.panelId;
       document.body.appendChild(panel);
     }
+    ensureNavLauncher();
     render();
   }
 
@@ -2148,7 +2224,8 @@ Join the race, earn points, and fight for a Championship spot!`,
         const action = btn.dataset.action;
 
         if (action === 'close') {
-          document.getElementById(APP.panelId).classList.remove('open'); return;
+          document.getElementById(APP.panelId)?.classList.remove('open');
+          return;
         }
         if (action === 'link-current') {
           const week = currentQualifyingWeek();
@@ -2389,7 +2466,16 @@ Join the race, earn points, and fight for a Championship spot!`,
 
     // Re-inject after Torn SPA navigation if needed.
     const observer = new MutationObserver(() => {
-      if (!document.getElementById(APP.buttonId) || !document.getElementById(APP.panelId)) createUI();
+      if (!document.getElementById(APP.buttonId) || !document.getElementById(APP.panelId)) {
+        createUI();
+        return;
+      }
+
+      // Torn replaces parts of its header during SPA navigation.
+      // Re-add only the RaceIQ launcher when that happens.
+      if (!document.getElementById(APP.navWrapperId)) {
+        ensureNavLauncher();
+      }
     });
     observer.observe(document.documentElement, {childList:true,subtree:true});
 
