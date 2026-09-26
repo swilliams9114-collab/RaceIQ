@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.9
+// @version      1.0.10
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.9',
+    version: '1.0.10',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -249,19 +249,67 @@
   }
 
   async function createSnapshot(label = 'auto') {
-    if (typeof PDA_storage === 'undefined') return;
+    if (typeof PDA_storage === 'undefined') return null;
+
     const key = `${APP.snapshotPrefix}${Date.now()}_${label}`;
-    await PDA_storage.set(key, {
+    const payload = {
       createdAt: new Date().toISOString(),
       label,
+      appVersion: APP.version,
       state: clone(state)
-    });
+    };
+
+    await PDA_storage.set(key, payload);
+
     const keys = (await PDA_storage.list())
       .filter(k => k.startsWith(APP.snapshotPrefix))
       .sort();
+
     while (keys.length > 10) {
       await PDA_storage.delete(keys.shift());
     }
+
+    return {key, ...payload};
+  }
+
+  async function listSnapshots() {
+    if (typeof PDA_storage === 'undefined') return [];
+
+    const keys = (await PDA_storage.list())
+      .filter(k => k.startsWith(APP.snapshotPrefix))
+      .sort()
+      .reverse();
+
+    const rows = [];
+    for (const key of keys.slice(0,10)) {
+      try {
+        const snap = await PDA_storage.get(key, null);
+        if (snap?.state) rows.push({key, ...snap});
+      } catch (_) {}
+    }
+    return rows;
+  }
+
+  async function restoreSnapshot(key) {
+    if (typeof PDA_storage === 'undefined') {
+      throw new Error('Snapshots are only available inside TornPDA storage.');
+    }
+
+    const snap = await PDA_storage.get(key, null);
+    if (!snap?.state || snap.state.schema !== 1) {
+      throw new Error('That snapshot is missing or invalid.');
+    }
+
+    if (!confirm(
+      `Restore snapshot from ${new Date(snap.createdAt).toLocaleString()}?\n\n` +
+      `Label: ${snap.label || 'snapshot'}\n\n` +
+      `Your current state will be snapshotted first.`
+    )) return false;
+
+    await createSnapshot('before_snapshot_restore');
+    state = clone(snap.state);
+    await saveState(false);
+    return true;
   }
 
   // ---------- API ----------
@@ -1086,29 +1134,81 @@
   }
 
   // ---------- backup ----------
+  function backupSummary(sourceState = state) {
+    const qualifyingSynced = (sourceState.qualifying || []).filter(r => (r.results || []).length > 0).length;
+    const qualifyingResults = (sourceState.qualifying || []).reduce((sum,r) => sum + (r.results || []).length, 0);
+    const prizeDraws = new Set((sourceState.prizes?.history || []).map(h => h.id || `${h.week}-${h.timestamp}-${h.prize}`)).size;
+    const championshipStarted = Boolean(sourceState.championship?.started);
+
+    return {
+      qualifyingSynced,
+      qualifyingResults,
+      prizeDraws,
+      championshipStarted
+    };
+  }
+
+  function validateBackupState(incoming) {
+    const problems = [];
+
+    if (!incoming || incoming.schema !== 1) problems.push('schema must be 1');
+    if (!Array.isArray(incoming?.qualifying) || incoming.qualifying.length !== 8) problems.push('must contain 8 qualifying races');
+    if (!Array.isArray(incoming?.championship?.races) || incoming.championship.races.length !== 4) problems.push('must contain 4 Championship races');
+    if (!incoming?.prizes || !Array.isArray(incoming.prizes.inventory) || !Array.isArray(incoming.prizes.history)) {
+      problems.push('prize data is missing');
+    }
+
+    return {ok: problems.length === 0, problems};
+  }
+
   async function copyBackup() {
     const payload = {
       app: APP.name,
       version: APP.version,
       exportedAt: new Date().toISOString(),
+      summary: backupSummary(state),
       state
     };
+
     await copyText(JSON.stringify(payload));
+    state.meta.lastManualBackup = payload.exportedAt;
+    await saveState(false);
   }
 
   async function importBackup() {
     const raw = prompt('Paste a RaceIQ backup JSON:');
     if (!raw) return;
-    const parsed = JSON.parse(raw);
-    const incoming = parsed?.state || parsed;
-    if (!incoming || incoming.schema !== 1 || !Array.isArray(incoming.qualifying)) {
-      throw new Error('That backup is not a valid RaceIQ V1 backup.');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      throw new Error('That text is not valid JSON.');
     }
-    if (!confirm('Replace the current RaceIQ data with this backup?')) return;
+
+    const incoming = parsed?.state || parsed;
+    const validation = validateBackupState(incoming);
+    if (!validation.ok) {
+      throw new Error(`Invalid RaceIQ backup: ${validation.problems.join('; ')}.`);
+    }
+
+    const summary = backupSummary(incoming);
+    const exportedAt = parsed?.exportedAt || incoming?.meta?.updatedAt || 'unknown time';
+
+    if (!confirm(
+      `Import this RaceIQ backup?\n\n` +
+      `Backup date: ${exportedAt}\n` +
+      `Qualifying races loaded: ${summary.qualifyingSynced}/8\n` +
+      `Stored qualifying results: ${summary.qualifyingResults}\n` +
+      `Prize draws: ${summary.prizeDraws}\n` +
+      `Championship started: ${summary.championshipStarted ? 'Yes' : 'No'}\n\n` +
+      `A safety snapshot of your current data will be created first.`
+    )) return;
+
     await createSnapshot('before_import');
-    state = incoming;
+    state = clone(incoming);
+    if (!state.userCache || typeof state.userCache !== 'object') state.userCache = {};
     await saveState(false);
-    render();
   }
 
   // ---------- diagnostics ----------
@@ -1119,6 +1219,13 @@
     push('Storage loaded', !!state, `Schema ${state?.schema}`);
     push('8 qualifying races', state.qualifying.length === 8, `${state.qualifying.length} configured`);
     push('4 Championship races', state.championship.races.length === 4, `${state.championship.races.length} configured`);
+
+    const backupValidation = validateBackupState(state);
+    push(
+      'Backup structure',
+      backupValidation.ok,
+      backupValidation.ok ? 'Current state can be exported as a valid V1 backup' : backupValidation.problems.join('; ')
+    );
 
     try {
       const info = await apiGet('/key/info');
@@ -1672,22 +1779,59 @@
   }
 
   function settingsView() {
+    const summary = backupSummary(state);
+    const lastBackup = state.meta?.lastManualBackup
+      ? new Date(state.meta.lastManualBackup).toLocaleString()
+      : 'No manual backup recorded yet';
+
     return `
       <div class="ri-card">
         <h3>Season Settings</h3>
+
         <label class="ri-label">Season name</label>
         <input class="ri-input" id="ri-season-name" value="${esc(state.season.name)}">
+
         <label class="ri-label">Default weekly winners</label>
         <input class="ri-input" id="ri-default-winners" type="number" min="1" value="${state.settings.defaultWinners}">
-        <label class="ri-label"><input id="ri-faction-only" type="checkbox" ${state.settings.factionOnly?'checked':''}> Faction members only</label>
-        <label class="ri-label"><input id="ri-finished-only" type="checkbox" ${state.settings.finishedOnly?'checked':''}> Finished racers only</label><br>
+
+        <label class="ri-label">
+          <input id="ri-faction-only" type="checkbox" ${state.settings.factionOnly?'checked':''}>
+          Faction members only
+        </label>
+
+        <label class="ri-label">
+          <input id="ri-finished-only" type="checkbox" ${state.settings.finishedOnly?'checked':''}>
+          Finished racers only
+        </label><br>
+
         <button class="ri-btn" data-action="save-settings">Save Settings</button>
       </div>
+
       <div class="ri-card">
-        <h3>Backup & Safety</h3>
-        <button class="ri-btn secondary" data-action="copy-backup">Copy Backup JSON</button>
+        <h3>Backup & Recovery</h3>
+
+        <div class="ri-grid">
+          <div class="ri-stat">Races Loaded<b>${summary.qualifyingSynced}/8</b></div>
+          <div class="ri-stat">Results Stored<b>${summary.qualifyingResults}</b></div>
+          <div class="ri-stat">Prize Draws<b>${summary.prizeDraws}</b></div>
+          <div class="ri-stat">Championship<b>${summary.championshipStarted ? 'STARTED' : 'NOT STARTED'}</b></div>
+        </div>
+
+        <br>
+        <div class="ri-small">Last manual backup: ${esc(lastBackup)}</div><br>
+
+        <button class="ri-btn" data-action="copy-backup">Copy Full Backup JSON</button>
         <button class="ri-btn secondary" data-action="import-backup">Import Backup JSON</button>
+        <button class="ri-btn secondary" data-action="create-snapshot">Create Safety Snapshot</button>
+        <button class="ri-btn secondary" data-action="view-snapshots">View / Restore Snapshots</button>
+      </div>
+
+      <div class="ri-card">
+        <h3>System Safety</h3>
         <button class="ri-btn secondary" data-action="diagnostics">Run Diagnostics</button>
+        <div class="ri-small">
+          Reset is intentionally protected. It creates a snapshot first and requires a typed confirmation.
+        </div><br>
         <button class="ri-btn danger" data-action="reset-season">Reset RaceIQ Data</button>
       </div>`;
   }
@@ -1952,6 +2096,39 @@
           const result = await syncRace('championship', week);
           toast(`Championship W${week}: ${result.imported} racers synced`); return;
         }
+        if (action === 'create-snapshot') {
+          const snap = await createSnapshot('manual');
+          toast(snap ? 'Safety snapshot created.' : 'Snapshots unavailable outside TornPDA.');
+          return;
+        }
+
+        if (action === 'view-snapshots') {
+          const snaps = await listSnapshots();
+          if (!snaps.length) {
+            alert('RaceIQ Snapshots\n\nNo snapshots are currently stored.');
+            return;
+          }
+
+          const list = snaps.map((s,i) =>
+            `${i+1}. ${new Date(s.createdAt).toLocaleString()} — ${s.label || 'snapshot'}`
+          ).join('\n');
+
+          const choice = prompt(
+            `RaceIQ Snapshots\n\n${list}\n\nEnter a snapshot number to restore, or Cancel to leave unchanged:`
+          );
+
+          if (choice === null || String(choice).trim() === '') return;
+
+          const index = Number(choice) - 1;
+          if (!Number.isInteger(index) || index < 0 || index >= snaps.length) {
+            throw new Error('That snapshot number is not valid.');
+          }
+
+          const restored = await restoreSnapshot(snaps[index].key);
+          if (restored) toast('Snapshot restored.');
+          return;
+        }
+
         if (action === 'save-settings') {
           const oldName = state.season.name;
           state.season.name = document.getElementById('ri-season-name').value.trim() || oldName;
@@ -1964,12 +2141,24 @@
         if (action === 'import-backup') { await importBackup(); return; }
         if (action === 'diagnostics') { await runDiagnostics(); return; }
         if (action === 'reset-season') {
-          if (!confirm('This will erase RaceIQ V1 data after creating a snapshot. Continue?')) return;
-          if (!confirm('Final confirmation: reset RaceIQ?')) return;
+          const typed = prompt(
+            'DANGER: This resets all RaceIQ season data on this device.\n\nType RESET RACEIQ exactly to continue:'
+          );
+
+          if (typed !== 'RESET RACEIQ') {
+            if (typed !== null) toast('Reset cancelled.');
+            return;
+          }
+
+          if (!confirm(
+            'Final confirmation: create a recovery snapshot and reset RaceIQ to a blank Season 1 state?'
+          )) return;
+
           await createSnapshot('before_reset');
           state = clone(DEFAULT_STATE);
           await saveState(false);
-          toast('RaceIQ reset.'); return;
+          toast('RaceIQ reset. Recovery snapshot preserved.');
+          return;
         }
       }));
     });
