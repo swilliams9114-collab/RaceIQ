@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.10
+// @version      1.0.11
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.10',
+    version: '1.0.11',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -216,6 +216,86 @@
     return `${minutes}m`;
   }
 
+  function ageText(iso) {
+    if (!iso) return 'Never';
+    const ms = Date.now() - Date.parse(iso);
+    if (!Number.isFinite(ms) || ms < 0) return 'Unknown';
+
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function systemHealthSummary() {
+    const issues = [];
+    const warnings = [];
+    const backupValidation = validateBackupState(state);
+    const standings = aggregateQualifying();
+
+    if (!backupValidation.ok) {
+      issues.push('Stored data structure needs attention');
+    }
+
+    const missingNames = state.qualifying.reduce(
+      (sum,r) => sum + (r.results || []).filter(x => !x.name).length,
+      0
+    );
+    if (missingNames) issues.push(`${missingNames} racer name(s) unresolved`);
+
+    const names = standings.map(r => normName(r.name)).filter(Boolean);
+    const duplicateNames = names.filter((n,i) => names.indexOf(n) !== i);
+    if (duplicateNames.length) issues.push('Duplicate racers detected in standings');
+
+    const completedWithoutResults = state.qualifying.filter(
+      r => displayStatus(r.status) === 'Completed' && !(r.results || []).length
+    );
+    if (completedWithoutResults.length) {
+      issues.push(
+        `Completed race(s) missing results: ${completedWithoutResults.map(r => 'W' + r.week).join(', ')}`
+      );
+    }
+
+    const progress = qualifyingProgress();
+    const currentWeek = currentQualifyingWeek();
+    const currentRace = state.qualifying[currentWeek - 1];
+
+    if (progress.synced < progress.completed) {
+      warnings.push('Some completed races have not been synced');
+    }
+
+    if (
+      currentRace &&
+      displayStatus(currentRace.status) !== 'Completed' &&
+      (!currentRace.date || !currentRace.track)
+    ) {
+      warnings.push(`Week ${currentWeek} setup is incomplete`);
+    }
+
+    if (!state.meta?.lastManualBackup) {
+      warnings.push('No manual backup recorded yet');
+    }
+
+    const apiAge = state.meta?.lastApiCheck ? Date.now() - Date.parse(state.meta.lastApiCheck) : Infinity;
+    if (apiAge > 24 * 60 * 60 * 1000) {
+      warnings.push('Full API diagnostics have not run in the last 24h');
+    }
+
+    const status = issues.length ? 'ISSUES' : warnings.length ? 'ATTENTION' : 'GOOD';
+    return {
+      status,
+      issues,
+      warnings,
+      apiAgeText: ageText(state.meta?.lastApiCheck),
+      factionAgeText: ageText(state.meta?.lastFactionSync),
+      backupAgeText: ageText(state.meta?.lastManualBackup)
+    };
+  }
 
   // ---------- TornPDA storage ----------
   async function loadState() {
@@ -1276,6 +1356,15 @@
       badFinish.length ? badFinish.join(', ') : 'All stored results have a valid finish'
     );
 
+    const health = systemHealthSummary();
+    rows.push({
+      name: 'Home health summary',
+      status: health.status === 'ISSUES' ? 'FAIL' : 'PASS',
+      detail: health.status === 'GOOD'
+        ? 'No local data problems detected'
+        : [...health.issues, ...health.warnings].join('; ')
+    });
+
     const result = rows.map(r => `${r.status}: ${r.name} — ${r.detail}`).join('\n');
     await saveState(false);
     alert(`RaceIQ Diagnostics\n\n${result}`);
@@ -1341,6 +1430,12 @@
       .ri-race-actions .ri-btn{flex:1;min-width:78px;margin:0}
       .ri-countdown{font-size:26px;font-weight:800;line-height:1.1;margin:6px 0}
       .ri-next-meta{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+      .ri-health{display:flex;align-items:center;justify-content:space-between;gap:10px}
+      .ri-health-status{font-size:18px;font-weight:800}
+      .ri-health-list{margin:8px 0 0;padding-left:18px;color:#cfd7e1;font-size:12px;line-height:1.45}
+      .ri-health-good{color:#8ee59a}
+      .ri-health-warn{color:#ffd27a}
+      .ri-health-bad{color:#ff9a9a}
       @media(max-width:420px){.ri-grid{grid-template-columns:1fr 1fr}.ri-body{padding:9px}.ri-card{padding:10px}}
     `;
     document.head.appendChild(style);
@@ -1397,6 +1492,14 @@
     const progress = qualifyingProgress();
     const pct = Math.round((progress.synced / state.season.qualifyingWeeks) * 100);
     const countdown = countdownText(race);
+    const health = systemHealthSummary();
+    const healthClass = health.status === 'GOOD'
+      ? 'ri-health-good'
+      : health.status === 'ATTENTION'
+        ? 'ri-health-warn'
+        : 'ri-health-bad';
+
+    const healthItems = [...health.issues, ...health.warnings].slice(0,4);
 
     return `
       <div class="ri-card">
@@ -1407,6 +1510,32 @@
           <div class="ri-stat">Championship<b>${cDone}/4</b></div>
           <div class="ri-stat">Tracked Racers<b>${standings.length}</b></div>
         </div>
+      </div>
+
+      <div class="ri-card">
+        <div class="ri-health">
+          <div>
+            <h3 style="margin-bottom:3px">System Health</h3>
+            <div class="ri-small">Local checks run whenever this screen opens</div>
+          </div>
+          <div class="ri-health-status ${healthClass}">${health.status}</div>
+        </div>
+
+        ${healthItems.length ? `
+          <ul class="ri-health-list">
+            ${healthItems.map(item => `<li>${esc(item)}</li>`).join('')}
+          </ul>
+        ` : `
+          <div class="ri-small" style="margin-top:8px">No local data problems detected.</div>
+        `}
+
+        <div class="ri-next-meta">
+          <span class="ri-pill">API check: ${esc(health.apiAgeText)}</span>
+          <span class="ri-pill">Faction sync: ${esc(health.factionAgeText)}</span>
+          <span class="ri-pill">Manual backup: ${esc(health.backupAgeText)}</span>
+        </div>
+
+        <button class="ri-btn secondary" data-action="diagnostics">Run Full Diagnostics</button>
       </div>
 
       <div class="ri-card">
@@ -1437,11 +1566,10 @@
       </div>
 
       <div class="ri-card">
-        <h3>Race Operations</h3>
+        <h3>Quick Operations</h3>
         <button class="ri-btn" data-action="sync-current">Sync Current Race</button>
         <button class="ri-btn secondary" data-action="link-current">Find / Link Race</button>
         <button class="ri-btn secondary" data-action="copy-top8">Copy Top 8</button>
-        <button class="ri-btn secondary" data-action="diagnostics">Run Diagnostics</button>
       </div>`;
   }
 
