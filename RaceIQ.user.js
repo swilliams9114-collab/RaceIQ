@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.3
+// @version      1.0.4
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.3',
+    version: '1.0.4',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -169,6 +169,20 @@
     const cDone = state.championship.races.filter(r => displayStatus(r.status) === 'Completed').length;
     return cDone < 4 ? 'CHAMPIONSHIP' : 'SEASON COMPLETE';
   }
+
+  function qualifyingProgress() {
+    const completed = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
+    const linked = state.qualifying.filter(r => String(r.raceId || '').trim()).length;
+    const synced = state.qualifying.filter(r => (r.results || []).length > 0).length;
+    return {completed, linked, synced};
+  }
+
+  function raceLoadStatus(r) {
+    if ((r.results || []).length > 0) return 'SYNCED';
+    if (String(r.raceId || '').trim()) return 'LINKED';
+    return 'MISSING';
+  }
+
 
   // ---------- TornPDA storage ----------
   async function loadState() {
@@ -1017,6 +1031,19 @@
       .ri-row{display:flex;gap:8px;align-items:center}
       .ri-row>*{flex:1}
       .ri-small{font-size:11px;color:#9eabb9}
+      .ri-progress{width:100%;height:9px;background:#0e1319;border:1px solid #303844;border-radius:999px;overflow:hidden;margin-top:8px}
+      .ri-progress>span{display:block;height:100%;background:#dce5ef;width:0}
+      .ri-race-list{display:grid;gap:9px}
+      .ri-race-card{background:#151b23;border:1px solid #303845;border-radius:10px;padding:10px}
+      .ri-race-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+      .ri-race-title{font-weight:700;line-height:1.2}
+      .ri-race-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+      .ri-pill{display:inline-block;border:1px solid #3d4855;border-radius:999px;padding:3px 7px;font-size:10px;color:#cdd6e0;background:#222a35}
+      .ri-pill.good{border-color:#42634a}
+      .ri-pill.warn{border-color:#766331}
+      .ri-pill.bad{border-color:#693a3a}
+      .ri-race-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+      .ri-race-actions .ri-btn{flex:1;min-width:78px;margin:0}
       @media(max-width:420px){.ri-grid{grid-template-columns:1fr 1fr}.ri-body{padding:9px}.ri-card{padding:10px}}
     `;
     document.head.appendChild(style);
@@ -1070,6 +1097,8 @@
     const standings = aggregateQualifying();
     const week = currentQualifyingWeek();
     const race = state.qualifying[week-1];
+    const progress = qualifyingProgress();
+    const pct = Math.round((progress.synced / state.season.qualifyingWeeks) * 100);
 
     return `
       <div class="ri-card">
@@ -1080,6 +1109,11 @@
           <div class="ri-stat">Championship<b>${cDone}/4</b></div>
           <div class="ri-stat">Tracked Racers<b>${standings.length}</b></div>
         </div>
+      </div>
+      <div class="ri-card">
+        <h3>Season Progress</h3>
+        <div class="ri-small">${progress.synced}/8 qualifying races loaded • ${progress.linked}/8 linked</div>
+        <div class="ri-progress"><span style="width:${pct}%"></span></div>
       </div>
       <div class="ri-card">
         <h3>Current / Next Race</h3>
@@ -1098,28 +1132,39 @@
   }
 
   function raceView() {
-    const rows = state.qualifying.map(r => `
-      <tr>
-        <td>${r.week}</td>
-        <td>
-          ${esc(r.name)}
-          ${r.raceId ? `<div class="ri-small">ID ${esc(r.raceId)}</div>` : ''}
-        </td>
-        <td>${esc(r.status)}</td>
-        <td>${r.results.length}</td>
-        <td>
-          <button class="ri-btn" data-action="sync-race" data-week="${r.week}">Sync</button>
-          <button class="ri-btn secondary" data-action="find-race" data-week="${r.week}">Find</button>
-          <button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button>
-        </td>
-      </tr>`).join('');
+    const cards = state.qualifying.map(r => {
+      const load = raceLoadStatus(r);
+      const loadClass = load === 'SYNCED' ? 'good' : load === 'LINKED' ? 'warn' : 'bad';
+      return `
+        <div class="ri-race-card">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">Week ${r.week} — ${esc(r.name)}</div>
+              <div class="ri-small">${r.date ? esc(r.date) : 'Date not set'}${r.time ? ` • ${esc(r.time)} TCT` : ''}</div>
+            </div>
+            <span class="ri-pill ${loadClass}">${load}</span>
+          </div>
+          <div class="ri-race-meta">
+            <span class="ri-pill">${esc(displayStatus(r.status || 'Planned'))}</span>
+            <span class="ri-pill">${(r.results || []).length} results</span>
+            ${r.raceId ? `<span class="ri-pill">ID ${esc(r.raceId)}</span>` : ''}
+          </div>
+          <div class="ri-race-actions">
+            <button class="ri-btn" data-action="sync-race" data-week="${r.week}">Sync</button>
+            <button class="ri-btn secondary" data-action="find-race" data-week="${r.week}">Find</button>
+            <button class="ri-btn secondary" data-action="edit-race" data-week="${r.week}">Edit</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    const progress = qualifyingProgress();
 
     return `
       <div class="ri-card">
         <h3>Qualifying Races</h3>
-        <div class="ri-small">Use Find to locate a race by name. For older races, add its date in Edit first; RaceIQ searches around the scheduled TCT time.</div><br>
-        <table class="ri-table"><thead><tr><th>Wk</th><th>Race</th><th>Status</th><th>Results</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="ri-small">${progress.synced}/8 synced • ${progress.linked}/8 linked. Use Find for older races; if a date is known, RaceIQ searches around the scheduled TCT time.</div>
       </div>
+      <div class="ri-race-list">${cards}</div>
       <div class="ri-card">
         <button class="ri-btn secondary" data-action="sync-all">Sync All Linked Races</button>
       </div>`;
@@ -1350,9 +1395,17 @@
           const target = state.qualifying[week - 1];
 
           if (!target.date) {
+            const knownDates = {
+              1: '2026-08-16',
+              2: '2026-08-23',
+              3: '2026-08-30',
+              5: '2026-09-20'
+            };
+
+            const suggested = knownDates[week] || '';
             const date = prompt(
               `Week ${week} race date (YYYY-MM-DD). RaceIQ uses this to search historical races:`,
-              target.date || ''
+              suggested
             );
             if (date === null) return;
             target.date = date.trim();
