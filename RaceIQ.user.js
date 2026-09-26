@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.0.7
+// @version      1.0.8
 // @description  Mobile-first TornPDA race manager with race sync, automatic racer-name repair, standings, prizes, Championship, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.0.7',
+    version: '1.0.8',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -943,6 +943,31 @@
     out += `\nTop 8 after Week 8 advance to the Championship.`;
     return out;
   }
+  function shareBubbleWatch() {
+    const s = aggregateQualifying();
+    const eighth = s[7];
+    const bubble = s.slice(8, 12);
+
+    let out = `AURORA SURREALIS — BUBBLE WATCH\n\n`;
+
+    if (!eighth) return out + 'Not enough racers are currently ranked to calculate the Top 8 cutoff.';
+
+    out += `CHAMPIONSHIP CUT LINE\n#8 ${eighth.name} — ${eighth.total} pts\n\n`;
+
+    if (!bubble.length) {
+      out += 'No racers are currently listed below the cut line.';
+      return out;
+    }
+
+    out += 'CHASING THE TOP 8\n';
+    bubble.forEach(r => {
+      const gap = Math.max(0, eighth.total - r.total);
+      out += `#${r.rank} ${r.name} — ${r.total} pts • ${gap} pt${gap===1?'':'s'} back\n`;
+    });
+
+    out += '\nTop 8 after Week 8 advance to the Championship.';
+    return out;
+  }
 
   function shareFullStandings() {
     const s = aggregateQualifying();
@@ -961,9 +986,19 @@
   }
 
   function sharePrizeWinners() {
-    const grouped = state.prizes.history.slice(-10);
-    let out = `AURORA SURREALIS — PRIZE WINNERS\n\n`;
-    grouped.forEach(h => out += `${h.racer} — ${h.qty}x ${h.prize} (Week ${h.week})\n`);
+    const draws = groupedPrizeDraws(1);
+    if (!draws.length) return 'AURORA SURREALIS — PRIZE WINNERS\n\nNo prize draw has been recorded yet.';
+
+    const draw = draws[0];
+    let out = `AURORA SURREALIS — WEEK ${draw.week} PRIZE WINNERS\n\n`;
+    draw.winners
+      .slice()
+      .sort((a,b) => Number(a.winnerNumber || 999) - Number(b.winnerNumber || 999))
+      .forEach((h,i) => {
+        out += `${i+1}. ${h.racer} — ${h.qty}x ${h.prize}\n`;
+      });
+
+    out += '\nThanks for racing!';
     return out;
   }
 
@@ -1001,11 +1036,26 @@
   function resultsAnnouncement(week) {
     const race = state.qualifying[week - 1];
     if (!race.results.length) return `Week ${week} has no synced results yet.`;
+
     const podium = race.results.slice(0,3);
+    const standings = aggregateQualifying();
+    const eighth = standings[7];
+    const ninth = standings[8];
+
     let out = `AURORA SURREALIS — WEEK ${week} COMPLETE\n\n`;
     out += `${race.name}\n\nPODIUM\n`;
-    podium.forEach(r => out += `${r.finish}. ${r.name}\n`);
-    out += `\nStandings have been updated. Top 8 after Week 8 advance to the Championship.`;
+    podium.forEach(r => out += `${r.finish}. ${r.name} — ${r.points} pts\n`);
+
+    out += `\n${race.results.length} faction racers finished this week.`;
+    out += '\nStandings have been updated.';
+
+    if (eighth) out += `\n\nCurrent #8: ${eighth.name} — ${eighth.total} pts`;
+    if (ninth) {
+      const gap = Math.max(0, eighth.total - ninth.total);
+      out += `\n#9: ${ninth.name} — ${ninth.total} pts • Gap ${gap}`;
+    }
+
+    out += '\n\nTop 8 after Week 8 advance to the Championship.';
     return out;
   }
 
@@ -1466,21 +1516,52 @@
   }
 
   function shareView() {
-    const week = currentQualifyingWeek();
+    const nextWeek = currentQualifyingWeek();
+    const latestWeek = latestSyncedQualifyingWeek();
+    const standings = aggregateQualifying();
+    const eighth = standings[7];
+    const ninth = standings[8];
+    const gap = eighth && ninth ? Math.max(0, eighth.total - ninth.total) : null;
+
     return `
       <div class="ri-card">
-        <h3>Share Center</h3>
-        <button class="ri-btn" data-action="copy-top8">Copy Top 8</button>
-        <button class="ri-btn secondary" data-action="copy-full">Copy Full Standings</button>
-        <button class="ri-btn secondary" data-action="copy-results" data-week="${week}">Copy Week ${week} Results</button>
-        <button class="ri-btn secondary" data-action="copy-prize-winners">Copy Prize Winners</button>
+        <h3>Standings Share</h3>
+        <div class="ri-small">
+          ${eighth ? `Current cutoff: #8 ${esc(eighth.name)} ${eighth.total} pts${ninth ? ` • #9 ${esc(ninth.name)} ${ninth.total} pts • Gap ${gap}` : ''}` : 'Standings are still building.'}
+        </div><br>
+
+        <div class="ri-race-actions">
+          <button class="ri-btn" data-action="copy-top8">Copy Top 8</button>
+          <button class="ri-btn secondary" data-action="copy-bubble">Bubble Watch</button>
+          <button class="ri-btn secondary" data-action="copy-full">Full Standings</button>
+        </div>
       </div>
+
       <div class="ri-card">
-        <h3>Race Messages</h3>
-        <button class="ri-btn" data-action="announcement-current">Full Week ${week} Announcement</button>
-        <button class="ri-btn secondary" data-action="announcement-short">Short Reminder</button>
-        <button class="ri-btn secondary" data-action="results-message">Results Post</button>
-      </div>`;
+        <h3>Completed Race Posts</h3>
+        <label class="ri-label">Week</label>
+        <select class="ri-select" id="ri-share-results-week">
+          ${state.qualifying.map(r=>`<option value="${r.week}" ${r.week===latestWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length ? (r.results||[]).length + ' results' : 'not synced'}</option>`).join('')}
+        </select>
+
+        <div class="ri-race-actions">
+          <button class="ri-btn" data-action="copy-selected-results">Full Results</button>
+          <button class="ri-btn secondary" data-action="copy-selected-results-post">Results Post</button>
+          <button class="ri-btn secondary" data-action="copy-prize-winners">Latest Prize Winners</button>
+        </div>
+      </div>
+
+      <div class="ri-card">
+        <h3>Next Race Messages — Week ${nextWeek}</h3>
+        <div class="ri-small">
+          Uses the Week ${nextWeek} race setup. Fields that are not configured yet will appear as TBD.
+        </div><br>
+        <div class="ri-race-actions">
+          <button class="ri-btn" data-action="announcement-current">Full Announcement</button>
+          <button class="ri-btn secondary" data-action="announcement-short">Short Reminder</button>
+        </div>
+      </div>
+    `;
   }
 
   function settingsView() {
@@ -1696,6 +1777,15 @@
         }
         if (action === 'copy-top8') { await copyText(shareTop8()); return; }
         if (action === 'copy-full') { await copyText(shareFullStandings()); return; }
+        if (action === 'copy-bubble') { await copyText(shareBubbleWatch()); return; }
+        if (action === 'copy-selected-results') {
+          const week = Number(document.getElementById('ri-share-results-week')?.value || latestSyncedQualifyingWeek());
+          await copyText(shareWeekResults(week)); return;
+        }
+        if (action === 'copy-selected-results-post') {
+          const week = Number(document.getElementById('ri-share-results-week')?.value || latestSyncedQualifyingWeek());
+          await copyText(resultsAnnouncement(week)); return;
+        }
         if (action === 'copy-results') { await copyText(shareWeekResults(Number(btn.dataset.week))); return; }
         if (action === 'copy-prize-winners') { await copyText(sharePrizeWinners()); return; }
         if (action === 'announcement-current') {
