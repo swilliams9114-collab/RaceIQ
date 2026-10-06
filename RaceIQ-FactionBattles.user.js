@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.1
+// @version      0.4.2
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.1',
+    version: '0.4.2',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -193,22 +193,31 @@
       return (z.start||0)-(a.start||0);
     });
 
-    const choices=ranked.slice(0,20);
-    const lines=choices.map((r,i)=>{
-      const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'time unknown';
+    b.raceChoices=ranked.slice(0,20);
+    b.updatedAt=new Date().toISOString();
+    await save();
+    renderBattles();
+    toast(`Found ${b.raceChoices.length} recent custom races. Tap the correct one.`);
+    return null;
+  }
+
+  function raceChoicesHtml(b) {
+    const choices=Array.isArray(b.raceChoices)?b.raceChoices:[];
+    if(!choices.length) return '';
+    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Tap the correct Torn race below. Closest matches to the saved battle time are listed first.</div>${choices.map(r=>{
+      const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'Time unknown';
       const count=r.participants ? ` • ${r.participants} racers` : '';
-      return `${i+1}. ${r.title||'Untitled race'} — ${when}${count} — ID ${r.id}`;
-    }).join('\n');
+      return `<button class="rib-btn secondary" style="width:100%;text-align:left;margin-top:7px" data-rib-action="choose-race" data-race-id="${esc(r.id)}"><b>${esc(r.title||'Untitled race')}</b><br><span class="rib-small">${esc(when+count)} • ID ${esc(r.id)}</span></button>`;
+    }).join('')}<button class="rib-btn secondary" data-rib-action="cancel-race-list">Cancel</button></div>`;
+  }
 
-    const pick=window.prompt(`RaceIQ found ${choices.length} recent custom races.\n\nClosest matches to the saved battle time are shown first when a date/time is available.\n\n${lines}\n\nEnter the number of the correct race:`,'1');
-    if(pick===null) return null;
-    const index=Number(pick)-1;
-    if(!Number.isInteger(index)||index<0||index>=choices.length) throw new Error('That race selection was not valid.');
-    const chosen=choices[index];
-
+  async function chooseBattleRace(b,raceId) {
+    const chosen=(b.raceChoices||[]).find(r=>String(r.id)===String(raceId));
+    if(!chosen) throw new Error('That race is no longer in the finder list. Run Find Race again.');
     b.raceId=chosen.id;
     b.foundRaceTitle=chosen.title||'';
     b.foundRaceAt=chosen.start||0;
+    b.raceChoices=[];
     b.updatedAt=new Date().toISOString();
     await save();
     return chosen;
@@ -393,7 +402,7 @@
 
       <div class="rib-card"><h3>RNG Prize Setup</h3><div class="rib-grid"><div><label class="rib-label">Prize</label><input class="rib-input" id="rib-rng-prize" value="${esc(b.rngPrize.prize)}" ${locked?'disabled':''}></div><div><label class="rib-label">Qty / winner</label><input class="rib-input" id="rib-rng-qty" type="number" min="1" value="${esc(b.rngPrize.qtyPerWinner)}" ${locked?'disabled':''}></div><div><label class="rib-label">Random winners</label><input class="rib-input" id="rib-rng-winners" type="number" min="0" value="${esc(b.rngPrize.winnerCount)}" ${locked?'disabled':''}></div></div><label class="rib-label"><input id="rib-rng-finishers" type="checkbox" ${b.rngPrize.finishersOnly?'checked':''} ${locked?'disabled':''}> Finishers only</label><label class="rib-label"><input id="rib-rng-exclude-podium" type="checkbox" ${b.rngPrize.excludePodium?'checked':''} ${locked?'disabled':''}> Exclude 1st/2nd/3rd from RNG pool</label>${!locked?'<button class="rib-btn" data-rib-action="save-rng">Save RNG Setup</button>':''}</div>
 
-      <div class="rib-card"><h3>Participant Message</h3><div class="rib-pre">${esc(message)}</div><button class="rib-btn" data-rib-action="copy-message">Copy Participant Message</button></div>${resultsHtml(b)}`;
+      ${raceChoicesHtml(b)}<div class="rib-card"><h3>Participant Message</h3><div class="rib-pre">${esc(message)}</div><button class="rib-btn" data-rib-action="copy-message">Copy Participant Message</button></div>${resultsHtml(b)}`;
   }
 
   function settingsHtml() { return `<div class="rib-card"><h3>Participant Message Template</h3><div class="rib-small">Placeholders: {opponent}, {format}, {date}, {time}, {track}, {laps}, {class}, {upgradesShort}, {password}</div><textarea class="rib-textarea" id="rib-message-template">${esc(state.participantMessageTemplate)}</textarea><button class="rib-btn" data-rib-action="save-template">Save Template</button><button class="rib-btn secondary" data-rib-action="reset-template">Restore Default</button></div>`; }
@@ -416,7 +425,9 @@
     if(a==='save-template'){const v=String(document.getElementById('rib-message-template')?.value||'').trim();if(!v)throw new Error('Message template cannot be blank.');state.participantMessageTemplate=v;await save();toast('Participant message template saved.');return;} if(a==='reset-template'){state.participantMessageTemplate=DEFAULT_TEMPLATE;await save();showSettings();toast('Default participant message restored.');return;}
     if(!b) throw new Error('No battle is selected.');
     if(a==='save-battle'){await saveBattleSetup(b);renderBattles();toast('Battle setup saved.');return;}
-    if(a==='find-race'){await saveBattleSetup(b);const found=await findBattleRace(b);if(found){renderBattles();toast(`Linked race ${found.id}.`);}return;}
+    if(a==='find-race'){await saveBattleSetup(b);await findBattleRace(b);return;}
+    if(a==='choose-race'){const chosen=await chooseBattleRace(b,btn.dataset.raceId||'');renderBattles();toast(`Linked race ${chosen.id}.`);return;}
+    if(a==='cancel-race-list'){b.raceChoices=[];await save();renderBattles();return;}
     if(a==='save-host'){if(isLocked(b))throw new Error('This battle is CLOSED.');b.hostName=String(document.getElementById('rib-host-name')?.value||'').trim();b.hostId=String(document.getElementById('rib-host-id')?.value||'').trim();b.hostParticipation=document.getElementById('rib-host-participation')?.value==='COMPETING'?'COMPETING':'HOST_ONLY';b.updatedAt=new Date().toISOString();await save();renderBattles();toast(b.hostParticipation==='HOST_ONLY'?'Host will not count.':'Host will count as a racer.');return;}
     if(a==='save-rosters'){if(isLocked(b))throw new Error('This battle is CLOSED.');const n=teamSize(b),ours=readRoster('rib-our-roster'),theirs=readRoster('rib-opponent-roster');if(ours.length>n||theirs.length>n)throw new Error(`${b.format} allows a maximum of ${n} racers per faction.`);b.ourRoster=ours;b.opponentRoster=theirs;b.updatedAt=new Date().toISOString();await save();toast('Rosters saved.');return;}
     if(a==='save-placement'){b.placementPrizes.first=String(document.getElementById('rib-first-prize')?.value||'').trim();b.placementPrizes.second=String(document.getElementById('rib-second-prize')?.value||'').trim();b.placementPrizes.third=String(document.getElementById('rib-third-prize')?.value||'').trim();await save();toast('Placement prizes saved.');return;}
