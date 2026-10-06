@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.0
+// @version      0.4.1
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.0',
+    version: '0.4.1',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -179,33 +179,32 @@
 
   async function findBattleRace(b) {
     if(isLocked(b)) throw new Error('This battle is CLOSED.');
+
     const target=battleScheduledTs(b);
-    if(!target) throw new Error('Set the battle date and time before using Find Race.');
+    const races=normalizeRaceList(await apiGet('/racing/races?cat=custom&limit=100&sort=DESC'));
+    if(!races.length) throw new Error('Torn returned no recent custom races.');
 
-    const from=target-(12*60*60), to=target+(12*60*60);
-    let races=normalizeRaceList(await apiGet(`/racing/races?cat=custom&limit=100&sort=DESC&from=${from}&to=${to}`));
-    if(!races.length) races=normalizeRaceList(await apiGet('/racing/races?cat=custom&limit=100&sort=DESC'));
+    const ranked=[...races].sort((a,z)=>{
+      if(target) {
+        const ad=a.start?Math.abs(a.start-target):Number.MAX_SAFE_INTEGER;
+        const zd=z.start?Math.abs(z.start-target):Number.MAX_SAFE_INTEGER;
+        if(ad!==zd) return ad-zd;
+      }
+      return (z.start||0)-(a.start||0);
+    });
 
-    const nearby=races
-      .filter(r=>r.start && Math.abs(r.start-target)<=12*60*60)
-      .sort((a,z)=>Math.abs(a.start-target)-Math.abs(z.start-target));
+    const choices=ranked.slice(0,20);
+    const lines=choices.map((r,i)=>{
+      const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'time unknown';
+      const count=r.participants ? ` • ${r.participants} racers` : '';
+      return `${i+1}. ${r.title||'Untitled race'} — ${when}${count} — ID ${r.id}`;
+    }).join('\n');
 
-    if(!nearby.length) throw new Error('No custom races were found near this battle date/time.');
-
-    const likely=nearby.slice(0,8);
-    let chosen=likely[0];
-
-    if(likely.length>1) {
-      const lines=likely.map((r,i)=>{
-        const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'time unknown';
-        return `${i+1}. ${r.title||'Untitled race'} — ${when} — ID ${r.id}`;
-      }).join('\n');
-      const pick=window.prompt(`RaceIQ found ${likely.length} possible custom races near the saved time.\n\n${lines}\n\nEnter the number of the correct race:`,'1');
-      if(pick===null) return null;
-      const index=Number(pick)-1;
-      if(!Number.isInteger(index)||index<0||index>=likely.length) throw new Error('That race selection was not valid.');
-      chosen=likely[index];
-    }
+    const pick=window.prompt(`RaceIQ found ${choices.length} recent custom races.\n\nClosest matches to the saved battle time are shown first when a date/time is available.\n\n${lines}\n\nEnter the number of the correct race:`,'1');
+    if(pick===null) return null;
+    const index=Number(pick)-1;
+    if(!Number.isInteger(index)||index<0||index>=choices.length) throw new Error('That race selection was not valid.');
+    const chosen=choices[index];
 
     b.raceId=chosen.id;
     b.foundRaceTitle=chosen.title||'';
