@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.0
+// @version      1.1.1
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.0',
+    version: '1.1.1',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -2471,7 +2471,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
 })();
 
-/* ===== BEGIN MERGED FACTION BATTLES MODULE v0.4.6 =====
+/* ===== BEGIN MERGED FACTION BATTLES MODULE v0.4.7 =====
    Preserves existing PDA_storage key: raceiq_faction_battles_v1
    This keeps all standalone Battles test data/history intact after merge.
 ===== */
@@ -2480,10 +2480,11 @@ Join the race, earn points, and fight for a Championship spot!`,
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.6',
+    version: '0.4.7',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
+    transferKey: 'raceiq_battles_transfer_v1',
     panelId: 'raceiq-panel',
     tabId: 'raceiq-battles-tab',
     viewId: 'raceiq-battles-view',
@@ -2544,6 +2545,31 @@ Join the race, earn points, and fight for a Championship spot!`,
   async function save() {
     if (typeof PDA_storage !== 'undefined') await PDA_storage.set(MOD.storageKey, state);
     else localStorage.setItem(MOD.storageKey, JSON.stringify(state));
+  }
+
+  async function importTestBattleData() {
+    const raw = localStorage.getItem(MOD.transferKey);
+    if (!raw) throw new Error('No exported test Battles data was found. Enable the old Battles test script, open Battles, and tap Export to Main RaceIQ first.');
+
+    let payload;
+    try { payload = JSON.parse(raw); } catch (_) { throw new Error('The exported Battles transfer data is invalid.'); }
+    if (!payload || payload.schema !== 1 || !Array.isArray(payload.battles)) throw new Error('The exported Battles transfer data is not compatible.');
+
+    const existing = new Map((state.battles || []).map(b => [String(b.id), b]));
+    let added = 0, updated = 0;
+    payload.battles.forEach(b => {
+      const key = String(b?.id || '');
+      if (!key) return;
+      if (existing.has(key)) updated++;
+      else added++;
+      existing.set(key, clone(b));
+    });
+
+    state.battles = [...existing.values()].sort((a,z) => String(z.updatedAt||z.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||'')));
+    state.userCache = {...(state.userCache||{}), ...(payload.userCache||{})};
+    if (payload.participantMessageTemplate) state.participantMessageTemplate = payload.participantMessageTemplate;
+    await save();
+    return {added, updated, total: state.battles.length, exportedAt: payload.exportedAt || ''};
   }
 
   function newBattle() {
@@ -2917,7 +2943,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   function renderBattles() {
     const body=document.querySelector(`#${MOD.panelId} .ri-body`); if(!body) return;
-    const b=selectedBattle(); body.innerHTML=`<div id="${MOD.viewId}"><div class="rib-card"><h3>Faction Battles <span class="rib-small">v${MOD.version}</span></h3><div class="rib-small">Separate from Season standings, Championship, and normal RaceIQ prize history.</div><div class="rib-actions"><button class="rib-btn" data-rib-action="new">+ New Battle</button><button class="rib-btn secondary" data-rib-action="show-list">Battle History</button><button class="rib-btn secondary" data-rib-action="show-settings">Message Template</button></div></div><div id="rib-content">${b?battleEditorHtml(b):battleListHtml()}</div></div>`; bindEvents();
+    const b=selectedBattle(); body.innerHTML=`<div id="${MOD.viewId}"><div class="rib-card"><h3>Faction Battles <span class="rib-small">v${MOD.version}</span></h3><div class="rib-small">Separate from Season standings, Championship, and normal RaceIQ prize history.</div><div class="rib-actions"><button class="rib-btn" data-rib-action="new">+ New Battle</button><button class="rib-btn secondary" data-rib-action="show-list">Battle History</button><button class="rib-btn secondary" data-rib-action="show-settings">Message Template</button><button class="rib-btn secondary" data-rib-action="import-test-data">Import Test Battle Data</button></div></div><div id="rib-content">${b?battleEditorHtml(b):battleListHtml()}</div></div>`; bindEvents();
   }
   function showList(){const c=document.getElementById('rib-content');if(c)c.innerHTML=`<div class="rib-card"><h3>Faction Battle History</h3>${battleListHtml()}</div>`;bindEvents();}
   function showSettings(){const c=document.getElementById('rib-content');if(c)c.innerHTML=settingsHtml();bindEvents();}
@@ -2930,6 +2956,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   function bindEvents(){document.querySelectorAll('[data-rib-action]').forEach(btn=>btn.addEventListener('click',async()=>{const a=btn.dataset.ribAction,b=selectedBattle();try{
     if(a==='new'){newBattle();await save();renderBattles();return;} if(a==='show-list'){showList();return;} if(a==='show-settings'){showSettings();return;} if(a==='open'){selectedBattleId=btn.dataset.id||'';renderBattles();return;}
+    if(a==='import-test-data'){const r=await importTestBattleData();renderBattles();alert(`RaceIQ\n\nBattle transfer complete.\n\nAdded: ${r.added}\nUpdated: ${r.updated}\nTotal battles: ${r.total}`);return;}
     if(a==='save-template'){const v=String(document.getElementById('rib-message-template')?.value||'').trim();if(!v)throw new Error('Message template cannot be blank.');state.participantMessageTemplate=v;await save();toast('Participant message template saved.');return;} if(a==='reset-template'){state.participantMessageTemplate=DEFAULT_TEMPLATE;await save();showSettings();toast('Default participant message restored.');return;}
     if(!b) throw new Error('No battle is selected.');
     if(a==='save-battle'){await saveBattleSetup(b);renderBattles();toast('Battle setup saved.');return;}
