@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.4
+// @version      0.4.5
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.4',
+    version: '0.4.5',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -182,6 +182,17 @@
     if(isLocked(b)) throw new Error('This battle is CLOSED.');
 
     const target=battleScheduledTs(b);
+    const merged=new Map();
+    const sources=[];
+
+    // Best source first: races the current API-key owner has actually been involved with.
+    try {
+      const mine=normalizeRaceList(await apiGet('/user/races?cat=custom&limit=100&sort=DESC'));
+      mine.forEach(r=>{ if(r.id) merged.set(String(r.id),{...r,source:'MY_RACES'}); });
+      if(mine.length) sources.push(`My races: ${mine.length}`);
+    } catch (_) {}
+
+    // Fallback/global discovery. Torn's racing list can include open, in-progress and finished races.
     const requests=[
       '/racing/races?cat=custom&limit=100&sort=DESC',
       '/racing/races?cat=custom&limit=100&sort=ASC'
@@ -191,18 +202,22 @@
       requests.push(`/racing/races?cat=custom&limit=100&sort=DESC&from=${target-(24*60*60)}&to=${target+(24*60*60)}`);
     }
 
-    const merged=new Map();
     for(const path of requests) {
       try {
         const list=normalizeRaceList(await apiGet(path));
-        list.forEach(r=>{ if(r.id) merged.set(String(r.id),r); });
+        list.forEach(r=>{
+          if(!r.id) return;
+          const key=String(r.id);
+          if(!merged.has(key)) merged.set(key,{...r,source:'GLOBAL'});
+        });
       } catch (_) {}
     }
 
     const races=[...merged.values()];
-    if(!races.length) throw new Error('Torn returned no custom races from the available race searches.');
+    if(!races.length) throw new Error('Torn returned no races from either My Races or the global custom-race searches.');
 
     const ranked=races.sort((a,z)=>{
+      if(a.source!==z.source) return a.source==='MY_RACES' ? -1 : 1;
       if(target) {
         const ad=a.start?Math.abs(a.start-target):Number.MAX_SAFE_INTEGER;
         const zd=z.start?Math.abs(z.start-target):Number.MAX_SAFE_INTEGER;
@@ -215,17 +230,17 @@
     b.updatedAt=new Date().toISOString();
     await save();
     renderBattles();
-    toast(`Found ${b.raceChoices.length} possible custom races. Tap the correct one.`);
+    toast(`Found ${b.raceChoices.length} possible races. Your own races are listed first.`);
     return null;
   }
 
   function raceChoicesHtml(b) {
     const choices=Array.isArray(b.raceChoices)?b.raceChoices:[];
     if(!choices.length) return '';
-    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Tap the correct Torn race below. Up to 100 recent custom races are shown, with the closest saved date/time matches first.</div>${choices.map(r=>{
+    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Your own races are shown first and marked MY RACE. Global custom races follow as a fallback.</div>${choices.map(r=>{
       const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'Time unknown';
       const count=r.participants ? ` • ${r.participants} racers` : '';
-      return `<button class="rib-btn secondary" style="width:100%;text-align:left;margin-top:7px" data-rib-action="choose-race" data-race-id="${esc(r.id)}"><b>${esc(r.title||'Untitled race')}</b><br><span class="rib-small">${esc(when+count)} • ID ${esc(r.id)}</span></button>`;
+      return `<button class="rib-btn secondary" style="width:100%;text-align:left;margin-top:7px" data-rib-action="choose-race" data-race-id="${esc(r.id)}"><b>${r.source==='MY_RACES'?'★ ':''}${esc(r.title||'Untitled race')}</b><br><span class="rib-small">${esc(when+count)} • ID ${esc(r.id)}${r.source==='MY_RACES'?' • MY RACE':''}</span></button>`;
     }).join('')}<button class="rib-btn secondary" data-rib-action="cancel-race-list">Cancel</button></div>`;
   }
 
