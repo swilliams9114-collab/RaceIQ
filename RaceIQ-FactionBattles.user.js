@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.3
+// @version      0.4.4
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.3',
+    version: '0.4.4',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -182,10 +182,27 @@
     if(isLocked(b)) throw new Error('This battle is CLOSED.');
 
     const target=battleScheduledTs(b);
-    const races=normalizeRaceList(await apiGet('/racing/races?cat=custom&limit=100&sort=DESC'));
-    if(!races.length) throw new Error('Torn returned no recent custom races.');
+    const requests=[
+      '/racing/races?cat=custom&limit=100&sort=DESC',
+      '/racing/races?cat=custom&limit=100&sort=ASC'
+    ];
+    if(target) {
+      requests.push(`/racing/races?cat=custom&limit=100&sort=ASC&from=${target-(7*24*60*60)}&to=${target+(7*24*60*60)}`);
+      requests.push(`/racing/races?cat=custom&limit=100&sort=DESC&from=${target-(24*60*60)}&to=${target+(24*60*60)}`);
+    }
 
-    const ranked=[...races].sort((a,z)=>{
+    const merged=new Map();
+    for(const path of requests) {
+      try {
+        const list=normalizeRaceList(await apiGet(path));
+        list.forEach(r=>{ if(r.id) merged.set(String(r.id),r); });
+      } catch (_) {}
+    }
+
+    const races=[...merged.values()];
+    if(!races.length) throw new Error('Torn returned no custom races from the available race searches.');
+
+    const ranked=races.sort((a,z)=>{
       if(target) {
         const ad=a.start?Math.abs(a.start-target):Number.MAX_SAFE_INTEGER;
         const zd=z.start?Math.abs(z.start-target):Number.MAX_SAFE_INTEGER;
@@ -198,7 +215,7 @@
     b.updatedAt=new Date().toISOString();
     await save();
     renderBattles();
-    toast(`Found ${b.raceChoices.length} recent custom races. Tap the correct one.`);
+    toast(`Found ${b.raceChoices.length} possible custom races. Tap the correct one.`);
     return null;
   }
 
@@ -384,13 +401,13 @@
 
   function battleEditorHtml(b) {
     const locked=isLocked(b), slots=teamSize(b), message=renderParticipantMessage(b);
-    return `<div class="rib-card"><h3>Battle Setup</h3><div class="rib-grid">
+    return `<div class="rib-card"><h3>Battle Setup <span class="rib-small">Battles v${MOD.version}</span></h3><div class="rib-grid">
       <div><label class="rib-label">Opponent faction</label><input class="rib-input" id="rib-opponent" value="${esc(b.opponent)}" ${locked?'disabled':''}></div>
       <div><label class="rib-label">Format</label><select class="rib-select" id="rib-format" ${locked?'disabled':''}><option value="4v4" ${b.format==='4v4'?'selected':''}>4v4</option><option value="8v8" ${b.format==='8v8'?'selected':''}>8v8</option></select></div>
       <div><label class="rib-label">Date</label><input class="rib-input" id="rib-date" type="date" value="${esc(b.date)}" ${locked?'disabled':''}></div><div><label class="rib-label">Time (TCT)</label><input class="rib-input" id="rib-time" value="${esc(b.time)}" ${locked?'disabled':''}></div>
       <div><label class="rib-label">Track</label><input class="rib-input" id="rib-track" value="${esc(b.track)}" ${locked?'disabled':''}></div><div><label class="rib-label">Laps</label><input class="rib-input" id="rib-laps" type="number" min="1" value="${esc(b.laps)}" ${locked?'disabled':''}></div>
       <div><label class="rib-label">Class</label><input class="rib-input" id="rib-class" value="${esc(b.raceClass)}" ${locked?'disabled':''}></div><div><label class="rib-label">Password</label><input class="rib-input" id="rib-password" value="${esc(b.password)}" ${locked?'disabled':''}></div></div>
-      <label class="rib-label"><input id="rib-no-upgrades" type="checkbox" ${b.noUpgrades?'checked':''} ${locked?'disabled':''}> No upgrades</label><label class="rib-label">Race ID</label><input class="rib-input" id="rib-race-id" value="${esc(b.raceId)}" ${locked?'disabled':''}>${b.raceId?`<div class="rib-small">Linked race: ${esc(b.foundRaceTitle||'Race '+b.raceId)}</div>`:''}<div class="rib-actions">${!locked?'<button class="rib-btn secondary" data-rib-action="find-race">Find Race</button>':''}${!locked&&b.raceId?'<button class="rib-btn secondary" data-rib-action="unlink-race">Unlink Race</button>':''}${!locked?'<button class="rib-btn" data-rib-action="save-battle">Save Battle</button>':''}</div></div>
+      <label class="rib-label"><input id="rib-no-upgrades" type="checkbox" ${b.noUpgrades?'checked':''} ${locked?'disabled':''}> No upgrades</label><label class="rib-label">Race ID</label><input class="rib-input" id="rib-race-id" value="${esc(b.raceId)}" ${locked?'disabled':''}>${b.raceId?`<div class="rib-small">Linked race: ${esc(b.foundRaceTitle||'Race '+b.raceId)}</div>`:''}<div class="rib-actions">${!locked?'<button class="rib-btn secondary" data-rib-action="find-race">Find Race</button>':''}${!locked&&b.raceId?'<button class="rib-btn secondary" data-rib-action="unlink-race">Clear Linked Race</button>':''}${!locked?'<button class="rib-btn" data-rib-action="save-battle">Save Battle</button>':''}</div></div>
 
       <div class="rib-card"><h3>Host Participation</h3><div class="rib-small">Use Host only when you joined Torn's race only because you created it. Host-only entries are removed before team scoring, podiums, and RNG.</div>
       <label class="rib-label">Host racer name</label><input class="rib-input" id="rib-host-name" value="${esc(b.hostName||'')}" ${locked?'disabled':''}>
