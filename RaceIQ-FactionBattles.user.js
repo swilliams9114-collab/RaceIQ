@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.6
+// @version      0.4.7
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,10 +14,11 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.6',
+    version: '0.4.7',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
+    transferKey: 'raceiq_battles_transfer_v1',
     panelId: 'raceiq-panel',
     tabId: 'raceiq-battles-tab',
     viewId: 'raceiq-battles-view',
@@ -78,6 +79,19 @@
   async function save() {
     if (typeof PDA_storage !== 'undefined') await PDA_storage.set(MOD.storageKey, state);
     else localStorage.setItem(MOD.storageKey, JSON.stringify(state));
+  }
+
+  function exportToMainRaceIQ() {
+    const payload = {
+      schema: 1,
+      exportedAt: new Date().toISOString(),
+      sourceVersion: MOD.version,
+      participantMessageTemplate: state.participantMessageTemplate || DEFAULT_TEMPLATE,
+      userCache: state.userCache || {},
+      battles: Array.isArray(state.battles) ? clone(state.battles) : []
+    };
+    localStorage.setItem(MOD.transferKey, JSON.stringify(payload));
+    return payload.battles.length;
   }
 
   function newBattle() {
@@ -451,7 +465,7 @@
 
   function renderBattles() {
     const body=document.querySelector(`#${MOD.panelId} .ri-body`); if(!body) return;
-    const b=selectedBattle(); body.innerHTML=`<div id="${MOD.viewId}"><div class="rib-card"><h3>Faction Battles <span class="rib-small">v${MOD.version}</span></h3><div class="rib-small">Separate from Season standings, Championship, and normal RaceIQ prize history.</div><div class="rib-actions"><button class="rib-btn" data-rib-action="new">+ New Battle</button><button class="rib-btn secondary" data-rib-action="show-list">Battle History</button><button class="rib-btn secondary" data-rib-action="show-settings">Message Template</button></div></div><div id="rib-content">${b?battleEditorHtml(b):battleListHtml()}</div></div>`; bindEvents();
+    const b=selectedBattle(); body.innerHTML=`<div id="${MOD.viewId}"><div class="rib-card"><h3>Faction Battles <span class="rib-small">v${MOD.version}</span></h3><div class="rib-small">Separate from Season standings, Championship, and normal RaceIQ prize history.</div><div class="rib-actions"><button class="rib-btn" data-rib-action="new">+ New Battle</button><button class="rib-btn secondary" data-rib-action="show-list">Battle History</button><button class="rib-btn secondary" data-rib-action="show-settings">Message Template</button><button class="rib-btn secondary" data-rib-action="export-main">Export to Main RaceIQ</button></div></div><div id="rib-content">${b?battleEditorHtml(b):battleListHtml()}</div></div>`; bindEvents();
   }
   function showList(){const c=document.getElementById('rib-content');if(c)c.innerHTML=`<div class="rib-card"><h3>Faction Battle History</h3>${battleListHtml()}</div>`;bindEvents();}
   function showSettings(){const c=document.getElementById('rib-content');if(c)c.innerHTML=settingsHtml();bindEvents();}
@@ -464,6 +478,7 @@
 
   function bindEvents(){document.querySelectorAll('[data-rib-action]').forEach(btn=>btn.addEventListener('click',async()=>{const a=btn.dataset.ribAction,b=selectedBattle();try{
     if(a==='new'){newBattle();await save();renderBattles();return;} if(a==='show-list'){showList();return;} if(a==='show-settings'){showSettings();return;} if(a==='open'){selectedBattleId=btn.dataset.id||'';renderBattles();return;}
+    if(a==='export-main'){const count=exportToMainRaceIQ();alert(`RaceIQ Faction Battles\n\nExported ${count} battle(s) for Main RaceIQ.\n\nNow open Main RaceIQ → Battles and tap Import Test Battle Data.`);return;}
     if(a==='save-template'){const v=String(document.getElementById('rib-message-template')?.value||'').trim();if(!v)throw new Error('Message template cannot be blank.');state.participantMessageTemplate=v;await save();toast('Participant message template saved.');return;} if(a==='reset-template'){state.participantMessageTemplate=DEFAULT_TEMPLATE;await save();showSettings();toast('Default participant message restored.');return;}
     if(!b) throw new Error('No battle is selected.');
     if(a==='save-battle'){await saveBattleSetup(b);renderBattles();toast('Battle setup saved.');return;}
