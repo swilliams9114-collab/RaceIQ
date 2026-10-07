@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.5
+// @version      0.4.6
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.5',
+    version: '0.4.6',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -216,28 +216,37 @@
     const races=[...merged.values()];
     if(!races.length) throw new Error('Torn returned no races from either My Races or the global custom-race searches.');
 
-    const ranked=races.sort((a,z)=>{
-      if(a.source!==z.source) return a.source==='MY_RACES' ? -1 : 1;
+    let ranked=races.sort((a,z)=>{
+      // Saved battle date/time is the strongest signal. "My race" is only a tiebreaker.
       if(target) {
         const ad=a.start?Math.abs(a.start-target):Number.MAX_SAFE_INTEGER;
         const zd=z.start?Math.abs(z.start-target):Number.MAX_SAFE_INTEGER;
         if(ad!==zd) return ad-zd;
       }
+      if(a.source!==z.source) return a.source==='MY_RACES' ? -1 : 1;
       return (z.start||0)-(a.start||0);
     });
+
+    // When a battle date/time exists, keep the picker focused on that day/window instead
+    // of letting newer races crowd the wanted race out of the list.
+    if(target) {
+      const within24=ranked.filter(r=>r.start && Math.abs(r.start-target)<=24*60*60);
+      if(within24.length) ranked=within24;
+    }
 
     b.raceChoices=ranked.slice(0,100);
     b.updatedAt=new Date().toISOString();
     await save();
     renderBattles();
-    toast(`Found ${b.raceChoices.length} possible races. Your own races are listed first.`);
+    const targetText=target ? new Date(target*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'saved time';
+    toast(`Found ${b.raceChoices.length} races near ${targetText}.`);
     return null;
   }
 
   function raceChoicesHtml(b) {
     const choices=Array.isArray(b.raceChoices)?b.raceChoices:[];
     if(!choices.length) return '';
-    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Your own races are shown first and marked MY RACE. Global custom races follow as a fallback.</div>${choices.map(r=>{
+    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Races closest to the saved battle date/time are shown first. MY RACE is used only as a secondary match.</div>${choices.map(r=>{
       const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'Time unknown';
       const count=r.participants ? ` • ${r.participants} racers` : '';
       return `<button class="rib-btn secondary" style="width:100%;text-align:left;margin-top:7px" data-rib-action="choose-race" data-race-id="${esc(r.id)}"><b>${r.source==='MY_RACES'?'★ ':''}${esc(r.title||'Untitled race')}</b><br><span class="rib-small">${esc(when+count)} • ID ${esc(r.id)}${r.source==='MY_RACES'?' • MY RACE':''}</span></button>`;
