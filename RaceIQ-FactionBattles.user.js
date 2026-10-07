@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Faction Battles Module
 // @namespace    raceiq.aurora.surrealis.battles
-// @version      0.4.2
+// @version      0.4.3
 // @description  Lightweight Faction vs Faction race module for RaceIQ with host-only support, sync, scoring, podium prizes, RNG prizes, and separate history.
 // @author       Aurora Surrealis
 // @match        *://www.torn.com/*
@@ -14,7 +14,7 @@
   if (window.top !== window.self) return;
 
   const MOD = {
-    version: '0.4.2',
+    version: '0.4.3',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_faction_battles_v1',
@@ -167,7 +167,8 @@
   }
 
   function normalizeRaceList(payload) {
-    const raw=Array.isArray(payload?.races) ? payload.races : [];
+    const src=payload?.races;
+    const raw=Array.isArray(src) ? src : (src && typeof src==='object' ? Object.values(src) : []);
     return raw.map(r=>({
       id:String(r.id??r.race_id??''),
       title:String(r.title??r.name??r.race_name??'').trim(),
@@ -193,7 +194,7 @@
       return (z.start||0)-(a.start||0);
     });
 
-    b.raceChoices=ranked.slice(0,20);
+    b.raceChoices=ranked.slice(0,100);
     b.updatedAt=new Date().toISOString();
     await save();
     renderBattles();
@@ -204,7 +205,7 @@
   function raceChoicesHtml(b) {
     const choices=Array.isArray(b.raceChoices)?b.raceChoices:[];
     if(!choices.length) return '';
-    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Tap the correct Torn race below. Closest matches to the saved battle time are listed first.</div>${choices.map(r=>{
+    return `<div class="rib-card"><h3>Select Race</h3><div class="rib-small">Tap the correct Torn race below. Up to 100 recent custom races are shown, with the closest saved date/time matches first.</div>${choices.map(r=>{
       const when=r.start ? new Date(r.start*1000).toISOString().slice(0,16).replace('T',' ')+' TCT' : 'Time unknown';
       const count=r.participants ? ` • ${r.participants} racers` : '';
       return `<button class="rib-btn secondary" style="width:100%;text-align:left;margin-top:7px" data-rib-action="choose-race" data-race-id="${esc(r.id)}"><b>${esc(r.title||'Untitled race')}</b><br><span class="rib-small">${esc(when+count)} • ID ${esc(r.id)}</span></button>`;
@@ -389,7 +390,7 @@
       <div><label class="rib-label">Date</label><input class="rib-input" id="rib-date" type="date" value="${esc(b.date)}" ${locked?'disabled':''}></div><div><label class="rib-label">Time (TCT)</label><input class="rib-input" id="rib-time" value="${esc(b.time)}" ${locked?'disabled':''}></div>
       <div><label class="rib-label">Track</label><input class="rib-input" id="rib-track" value="${esc(b.track)}" ${locked?'disabled':''}></div><div><label class="rib-label">Laps</label><input class="rib-input" id="rib-laps" type="number" min="1" value="${esc(b.laps)}" ${locked?'disabled':''}></div>
       <div><label class="rib-label">Class</label><input class="rib-input" id="rib-class" value="${esc(b.raceClass)}" ${locked?'disabled':''}></div><div><label class="rib-label">Password</label><input class="rib-input" id="rib-password" value="${esc(b.password)}" ${locked?'disabled':''}></div></div>
-      <label class="rib-label"><input id="rib-no-upgrades" type="checkbox" ${b.noUpgrades?'checked':''} ${locked?'disabled':''}> No upgrades</label><label class="rib-label">Race ID</label><input class="rib-input" id="rib-race-id" value="${esc(b.raceId)}" ${locked?'disabled':''}>${b.raceId?`<div class="rib-small">Linked race: ${esc(b.foundRaceTitle||'Race '+b.raceId)}</div>`:''}<div class="rib-actions">${!locked?'<button class="rib-btn secondary" data-rib-action="find-race">Find Race</button><button class="rib-btn" data-rib-action="save-battle">Save Battle</button>':''}</div></div>
+      <label class="rib-label"><input id="rib-no-upgrades" type="checkbox" ${b.noUpgrades?'checked':''} ${locked?'disabled':''}> No upgrades</label><label class="rib-label">Race ID</label><input class="rib-input" id="rib-race-id" value="${esc(b.raceId)}" ${locked?'disabled':''}>${b.raceId?`<div class="rib-small">Linked race: ${esc(b.foundRaceTitle||'Race '+b.raceId)}</div>`:''}<div class="rib-actions">${!locked?'<button class="rib-btn secondary" data-rib-action="find-race">Find Race</button>':''}${!locked&&b.raceId?'<button class="rib-btn secondary" data-rib-action="unlink-race">Unlink Race</button>':''}${!locked?'<button class="rib-btn" data-rib-action="save-battle">Save Battle</button>':''}</div></div>
 
       <div class="rib-card"><h3>Host Participation</h3><div class="rib-small">Use Host only when you joined Torn's race only because you created it. Host-only entries are removed before team scoring, podiums, and RNG.</div>
       <label class="rib-label">Host racer name</label><input class="rib-input" id="rib-host-name" value="${esc(b.hostName||'')}" ${locked?'disabled':''}>
@@ -427,6 +428,7 @@
     if(a==='save-battle'){await saveBattleSetup(b);renderBattles();toast('Battle setup saved.');return;}
     if(a==='find-race'){await saveBattleSetup(b);await findBattleRace(b);return;}
     if(a==='choose-race'){const chosen=await chooseBattleRace(b,btn.dataset.raceId||'');renderBattles();toast(`Linked race ${chosen.id}.`);return;}
+    if(a==='unlink-race'){b.raceId='';b.foundRaceTitle='';b.foundRaceAt=0;b.raceChoices=[];b.results=[];b.teamScore=null;b.placementAwards=[];b.rngWinners=[];b.syncedAt='';b.status='DRAFT';b.updatedAt=new Date().toISOString();await save();renderBattles();toast('Race unlinked.');return;}
     if(a==='cancel-race-list'){b.raceChoices=[];await save();renderBattles();return;}
     if(a==='save-host'){if(isLocked(b))throw new Error('This battle is CLOSED.');b.hostName=String(document.getElementById('rib-host-name')?.value||'').trim();b.hostId=String(document.getElementById('rib-host-id')?.value||'').trim();b.hostParticipation=document.getElementById('rib-host-participation')?.value==='COMPETING'?'COMPETING':'HOST_ONLY';b.updatedAt=new Date().toISOString();await save();renderBattles();toast(b.hostParticipation==='HOST_ONLY'?'Host will not count.':'Host will count as a racer.');return;}
     if(a==='save-rosters'){if(isLocked(b))throw new Error('This battle is CLOSED.');const n=teamSize(b),ours=readRoster('rib-our-roster'),theirs=readRoster('rib-opponent-roster');if(ours.length>n||theirs.length>n)throw new Error(`${b.format} allows a maximum of ${n} racers per faction.`);b.ourRoster=ours;b.opponentRoster=theirs;b.updatedAt=new Date().toISOString();await save();toast('Rosters saved.');return;}
