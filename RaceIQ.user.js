@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.3
+// @version      1.1.4
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.3',
+    version: '1.1.4',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -84,6 +84,13 @@
       ],
       history: [],
       placementByWeek: {},
+      placementOverall: {
+        first: [],
+        second: [],
+        third: [],
+        awardId: '',
+        awardedAt: ''
+      },
       placementHistory: [],
       itemCatalog: [],
       catalogFetchedAt: ''
@@ -130,6 +137,7 @@ Join the race, earn points, and fight for a Championship spot!`,
   let factionIndex = { byId: new Set(), byName: new Set(), namesById: new Map(), count: 0, loadedAt: 0 };
   let currentTab = 'home';
   let placementPrizeWeek = 0;
+  let placementPrizeMode = 'WEEKLY';
   let busy = false;
 
   // ---------- helpers ----------
@@ -345,6 +353,14 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (!Array.isArray(state.prizes.inventory)) state.prizes.inventory = clone(DEFAULT_STATE.prizes.inventory);
     if (!Array.isArray(state.prizes.history)) state.prizes.history = [];
     if (!state.prizes.placementByWeek || typeof state.prizes.placementByWeek !== 'object') state.prizes.placementByWeek = {};
+    if (!state.prizes.placementOverall || typeof state.prizes.placementOverall !== 'object') {
+      state.prizes.placementOverall = clone(DEFAULT_STATE.prizes.placementOverall);
+    }
+    ['first','second','third'].forEach(key => {
+      if (!Array.isArray(state.prizes.placementOverall[key])) state.prizes.placementOverall[key] = [];
+    });
+    if (!state.prizes.placementOverall.awardId) state.prizes.placementOverall.awardId = '';
+    if (!state.prizes.placementOverall.awardedAt) state.prizes.placementOverall.awardedAt = '';
     if (!Array.isArray(state.prizes.placementHistory)) state.prizes.placementHistory = [];
     if (!Array.isArray(state.prizes.itemCatalog)) state.prizes.itemCatalog = [];
     if (!state.prizes.catalogFetchedAt) state.prizes.catalogFetchedAt = '';
