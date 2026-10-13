@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.1
+// @version      1.1.2
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.1',
+    version: '1.1.2',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -1753,6 +1753,7 @@ Join the race, earn points, and fight for a Championship spot!`,
           </div>
           <div class="ri-race-actions">
             <button class="ri-btn secondary" data-action="edit-prize" data-index="${i}">Edit Prize</button>
+            <button class="ri-btn danger" data-action="remove-prize" data-index="${i}">Remove</button>
           </div>
         </div>
       `;
@@ -2154,6 +2155,15 @@ Join the race, earn points, and fight for a Championship spot!`,
     await saveState(false);
   }
 
+  async function removePrize(index) {
+    const p = state.prizes.inventory[index];
+    if (!p) throw new Error('That prize no longer exists.');
+    if (!confirm('Remove ' + p.name + ' from Prize Inventory? Past draw history will be kept.')) return false;
+    state.prizes.inventory.splice(index, 1);
+    await saveState(false);
+    return true;
+  }
+
   function previewAndCopy(text, title='Preview') {
     const ok = confirm(`${title}\n\n${text}\n\nCopy this text?`);
     if (ok) copyText(text);
@@ -2292,6 +2302,10 @@ Join the race, earn points, and fight for a Championship spot!`,
           previewAndCopy(resultsAnnouncement(currentQualifyingWeek()), 'Results Post'); return;
         }
         if (action === 'edit-prize') { await editPrize(Number(btn.dataset.index)); return; }
+        if (action === 'remove-prize') {
+          if (await removePrize(Number(btn.dataset.index))) toast('Prize removed.');
+          return;
+        }
         if (action === 'add-prize') { await addPrize(); return; }
         if (action === 'preview-prize-pool') {
           const week = Number(document.getElementById('ri-draw-week').value);
