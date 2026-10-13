@@ -80,9 +80,11 @@
     },
     prizes: {
       inventory: [
-        {name: 'Xanax', stock: 0, qtyPerWinner: 1, reserve: 0}
+        {name: 'Xanax', itemId: '', mv: 0, stock: 0, qtyPerWinner: 1, reserve: 0}
       ],
-      history: []
+      history: [],
+      itemCatalog: [],
+      catalogFetchedAt: ''
     },
     grandPrix: [],
     archives: [],
@@ -336,6 +338,15 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (!state.meta) state.meta = clone(DEFAULT_STATE.meta);
     if (!Array.isArray(state.qualifying)) state.qualifying = clone(DEFAULT_STATE.qualifying);
     if (!state.championship) state.championship = clone(DEFAULT_STATE.championship);
+    if (!state.prizes || typeof state.prizes !== 'object') state.prizes = clone(DEFAULT_STATE.prizes);
+    if (!Array.isArray(state.prizes.inventory)) state.prizes.inventory = clone(DEFAULT_STATE.prizes.inventory);
+    if (!Array.isArray(state.prizes.history)) state.prizes.history = [];
+    if (!Array.isArray(state.prizes.itemCatalog)) state.prizes.itemCatalog = [];
+    if (!state.prizes.catalogFetchedAt) state.prizes.catalogFetchedAt = '';
+    state.prizes.inventory.forEach(p => {
+      if (p.itemId == null) p.itemId = '';
+      if (p.mv == null) p.mv = 0;
+    });
     if (!state.settings || typeof state.settings !== 'object') state.settings = clone(DEFAULT_STATE.settings);
     if (!state.settings.announcementTemplate) state.settings.announcementTemplate = DEFAULT_STATE.settings.announcementTemplate;
     if (!state.settings.reminderTemplate) state.settings.reminderTemplate = DEFAULT_STATE.settings.reminderTemplate;
@@ -2135,6 +2146,70 @@ Join the race, earn points, and fight for a Championship spot!`,
     r.password = pw.trim();
     r.raceId = id.trim();
     await saveState(false);
+  }
+
+  function prizeMoney(value) {
+    const n = Math.max(0, Number(value || 0));
+    return '$' + n.toLocaleString('en-US', {maximumFractionDigits: 0});
+  }
+
+  function normalizePrizeCatalog(payload) {
+    const src = payload?.items;
+    const rows = Array.isArray(src)
+      ? src
+      : (src && typeof src === 'object'
+          ? Object.entries(src).map(([id, item]) => ({...item, id: item?.id ?? id}))
+          : []);
+
+    return rows.map(item => ({
+      id: String(item?.id ?? item?.item_id ?? ''),
+      name: String(item?.name ?? item?.item_name ?? '').trim(),
+      mv: Number(item?.value?.market_price ?? item?.market_price ?? item?.market_value ?? 0) || 0
+    })).filter(item => item.id && item.name);
+  }
+
+  async function refreshPrizeCatalog(force = false) {
+    const age = state.prizes.catalogFetchedAt
+      ? Date.now() - Date.parse(state.prizes.catalogFetchedAt)
+      : Infinity;
+
+    if (!force && state.prizes.itemCatalog.length > 100 && age < 12 * 60 * 60 * 1000) {
+      return false;
+    }
+
+    const data = await apiGet('/torn/items?cat=All&sort=ASC');
+    const items = normalizePrizeCatalog(data);
+    if (!items.length) throw new Error('Torn returned no item catalog data.');
+
+    state.prizes.itemCatalog = items;
+    state.prizes.catalogFetchedAt = new Date().toISOString();
+
+    const byName = new Map(items.map(item => [normName(item.name), item]));
+    state.prizes.inventory.forEach(p => {
+      const found = byName.get(normName(p.name));
+      if (found) {
+        p.name = found.name;
+        p.itemId = found.id;
+        p.mv = found.mv;
+      }
+    });
+
+    await saveState(false);
+    return true;
+  }
+
+  function prizeMatches(query) {
+    const q = normName(query);
+    if (!q) return [];
+
+    const items = state.prizes.itemCatalog || [];
+    const exact = items.filter(item => normName(item.name) === q);
+    if (exact.length) return exact;
+
+    const starts = items.filter(item => normName(item.name).startsWith(q));
+    if (starts.length) return starts;
+
+    return items.filter(item => normName(item.name).includes(q));
   }
 
   async function editPrize(index) {
