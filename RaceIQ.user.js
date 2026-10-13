@@ -2330,7 +2330,17 @@ Join the race, earn points, and fight for a Championship spot!`,
     return items.filter(item => normName(item.name).includes(q));
   }
 
-  function placementConfig(week) {
+  function placementConfig(week, mode = 'WEEKLY') {
+    if (mode === 'OVERALL') {
+      const cfg = state.prizes.placementOverall;
+      if (!Array.isArray(cfg.first)) cfg.first = [];
+      if (!Array.isArray(cfg.second)) cfg.second = [];
+      if (!Array.isArray(cfg.third)) cfg.third = [];
+      if (!cfg.awardId) cfg.awardId = '';
+      if (!cfg.awardedAt) cfg.awardedAt = '';
+      return cfg;
+    }
+
     const key = String(Number(week) || 1);
     if (!state.prizes.placementByWeek[key]) {
       state.prizes.placementByWeek[key] = {
@@ -2362,9 +2372,25 @@ Join the race, earn points, and fight for a Championship spot!`,
     }, 0);
   }
 
-  async function addPlacementPrize(week, place) {
-    const cfg = placementConfig(week);
-    if (cfg.awardId) throw new Error('Placement prizes for this week have already been awarded. Undo them before editing.');
+  function placementTargetRacers(week, mode = 'WEEKLY') {
+    if (mode === 'OVERALL') {
+      return aggregateQualifying().slice(0,3).map(r => ({
+        id: r.id || '',
+        name: r.name,
+        finish: r.rank
+      }));
+    }
+
+    const race = state.qualifying[Number(week) - 1];
+    return (race?.results || [])
+      .filter(r => Number(r.finish) >= 1 && Number(r.finish) <= 3 && r.name)
+      .sort((a,b) => Number(a.finish) - Number(b.finish));
+  }
+
+  async function addPlacementPrize(week, place, mode = 'WEEKLY') {
+    const cfg = placementConfig(week, mode);
+    const label = mode === 'OVERALL' ? 'overall qualifier' : 'weekly';
+    if (cfg.awardId) throw new Error('These ' + label + ' placement prizes have already been awarded. Undo them before editing.');
 
     const select = document.getElementById('ri-place-' + place + '-prize');
     const qtyInput = document.getElementById('ri-place-' + place + '-qty');
@@ -2392,27 +2418,31 @@ Join the race, earn points, and fight for a Championship spot!`,
     await saveState(false);
   }
 
-  async function removePlacementPrize(week, place, index) {
-    const cfg = placementConfig(week);
-    if (cfg.awardId) throw new Error('Placement prizes for this week have already been awarded. Undo them before editing.');
+  async function removePlacementPrize(week, place, index, mode = 'WEEKLY') {
+    const cfg = placementConfig(week, mode);
+    if (cfg.awardId) throw new Error('These placement prizes have already been awarded. Undo them before editing.');
     const list = placementListFor(cfg, place);
     if (!list[index]) throw new Error('That placement prize no longer exists.');
     list.splice(index, 1);
     await saveState(false);
   }
 
-  async function awardPlacementPrizes(week) {
-    const race = state.qualifying[Number(week) - 1];
-    if (!race || !(race.results || []).length) throw new Error('Sync the race results before awarding placement prizes.');
+  async function awardPlacementPrizes(week, mode = 'WEEKLY') {
+    if (mode === 'OVERALL') {
+      const completed = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
+      if (completed < state.season.qualifyingWeeks) {
+        throw new Error('Overall Qualifying Top 3 cannot be awarded until all ' + state.season.qualifyingWeeks + ' qualifying races are complete.');
+      }
+    } else {
+      const race = state.qualifying[Number(week) - 1];
+      if (!race || !(race.results || []).length) throw new Error('Sync the race results before awarding placement prizes.');
+    }
 
-    const cfg = placementConfig(week);
-    if (cfg.awardId) throw new Error('Placement prizes for this week have already been awarded.');
+    const cfg = placementConfig(week, mode);
+    if (cfg.awardId) throw new Error('These placement prizes have already been awarded.');
 
-    const podium = (race.results || [])
-      .filter(r => Number(r.finish) >= 1 && Number(r.finish) <= 3 && r.name)
-      .sort((a,b) => Number(a.finish) - Number(b.finish));
-
-    if (podium.length < 3) throw new Error('RaceIQ needs finished racers in 1st, 2nd, and 3rd before awarding placement prizes.');
+    const podium = placementTargetRacers(week, mode);
+    if (podium.length < 3) throw new Error('RaceIQ needs a complete Top 3 before awarding placement prizes.');
 
     const plans = [
       {place:1, racer:podium.find(r => Number(r.finish) === 1), items:cfg.first},
@@ -2421,7 +2451,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     ];
 
     const configured = plans.flatMap(p => (p.items || []).map(item => ({...item, place:p.place, racer:p.racer})));
-    if (!configured.length) throw new Error('No placement prizes are configured for this week.');
+    if (!configured.length) throw new Error('No placement prizes are configured.');
 
     const needed = new Map();
     configured.forEach(item => {
@@ -2441,11 +2471,14 @@ Join the race, earn points, and fight for a Championship spot!`,
       return p.place + (p.place===1?'st':p.place===2?'nd':'rd') + ': ' + p.racer.name + ' — ' + items;
     }).join('\n');
 
-    if (!confirm('Award Week ' + week + ' placement prizes?\n\n' + lines + '\n\nThis will deduct configured quantities from Prize Inventory.')) return null;
+    const title = mode === 'OVERALL' ? 'Overall Qualifying Top 3' : 'Week ' + week;
+    if (!confirm('Award ' + title + ' placement prizes?\n\n' + lines + '\n\nThis will deduct configured quantities from Prize Inventory.')) return null;
 
-    await createSnapshot('before_placement_prizes');
+    await createSnapshot(mode === 'OVERALL' ? 'before_overall_placement_prizes' : 'before_placement_prizes');
 
-    const awardId = 'PLACEMENT-W' + week + '-' + Date.now();
+    const awardId = mode === 'OVERALL'
+      ? 'PLACEMENT-QUALIFIERS-' + Date.now()
+      : 'PLACEMENT-W' + week + '-' + Date.now();
     const now = new Date().toISOString();
 
     configured.forEach(item => {
@@ -2455,8 +2488,9 @@ Join the race, earn points, and fight for a Championship spot!`,
       state.prizes.placementHistory.push({
         id: awardId,
         timestamp: now,
-        type: 'PLACEMENT',
-        week: Number(week),
+        type: mode === 'OVERALL' ? 'PLACEMENT_OVERALL' : 'PLACEMENT',
+        scope: mode,
+        week: mode === 'OVERALL' ? null : Number(week),
         place: item.place,
         racerId: item.racer.id || '',
         racer: item.racer.name,
@@ -2470,19 +2504,20 @@ Join the race, earn points, and fight for a Championship spot!`,
     cfg.awardId = awardId;
     cfg.awardedAt = now;
     await saveState(false);
-    return {awardId, plans};
+    return {awardId, plans, mode};
   }
 
-  async function undoPlacementPrizes(week) {
-    const cfg = placementConfig(week);
-    if (!cfg.awardId) throw new Error('No placement award is recorded for this week.');
+  async function undoPlacementPrizes(week, mode = 'WEEKLY') {
+    const cfg = placementConfig(week, mode);
+    if (!cfg.awardId) throw new Error('No placement award is recorded here.');
 
     const entries = state.prizes.placementHistory.filter(h => h.id === cfg.awardId);
     if (!entries.length) throw new Error('Placement award history could not be found.');
 
-    if (!confirm('Undo Week ' + week + ' placement awards?\n\nPrize stock will be restored and the placement award record removed.')) return false;
+    const label = mode === 'OVERALL' ? 'Overall Qualifying Top 3' : 'Week ' + week;
+    if (!confirm('Undo ' + label + ' placement awards?\n\nPrize stock will be restored and the placement award record removed.')) return false;
 
-    await createSnapshot('before_undo_placement_prizes');
+    await createSnapshot(mode === 'OVERALL' ? 'before_undo_overall_placement_prizes' : 'before_undo_placement_prizes');
 
     entries.forEach(entry => {
       const prize = state.prizes.inventory.find(p => normName(p.name) === normName(entry.prize));
