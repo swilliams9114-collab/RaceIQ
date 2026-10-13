@@ -2423,6 +2423,8 @@ Join the race, earn points, and fight for a Championship spot!`,
 
         <div class="ri-card">
           <button class="ri-btn" data-action="sync-champ">Sync Current Championship Race</button>
+          <button class="ri-btn secondary" data-action="champ-announcement">Championship Announcement</button>
+          <button class="ri-btn secondary" data-action="champ-reminder">Championship Short Reminder</button>
         </div>
       ` : ''}
     `;
@@ -3265,6 +3267,16 @@ Join the race, earn points, and fight for a Championship spot!`,
           const week = currentChampionshipWeek();
           const result = await syncRace('championship', week);
           toast(`Championship W${week}: ${result.imported} racers synced`); return;
+        }
+        if (action === 'champ-announcement') {
+          const week = currentChampionshipWeek();
+          previewAndCopy(championshipAnnouncement(week, false), 'Championship Week ' + week + ' Announcement');
+          return;
+        }
+        if (action === 'champ-reminder') {
+          const week = currentChampionshipWeek();
+          previewAndCopy(championshipAnnouncement(week, true), 'Championship Week ' + week + ' Reminder');
+          return;
         }
         if (action === 'create-snapshot') {
           const snap = await createSnapshot('manual');
