@@ -1202,6 +1202,106 @@ Join the race, earn points, and fight for a Championship spot!`,
     return {drawId, selected, prize: clone(prize)};
   }
 
+  async function undoChampionshipPrizeDraw(drawId) {
+    const entries = state.prizes.championshipDrawHistory.filter(h => h.id === drawId);
+    if (!entries.length) throw new Error('That Championship prize draw could not be found.');
+
+    const prizeName = entries[0].prize;
+    const prize = getPrize(prizeName);
+    const restoreQty = entries.reduce((sum, h) => sum + Number(h.qty || 0), 0);
+    const names = entries.map(h => h.racer).join(', ');
+
+    if (!confirm(
+      'Undo this Championship prize draw?\n\n' +
+      'Championship Week ' + entries[0].week + '\n' +
+      entries.length + ' winner(s): ' + names + '\n' +
+      'Restore ' + restoreQty + 'x ' + prizeName + ' to inventory'
+    )) return false;
+
+    await createSnapshot('before_undo_championship_prize_draw');
+    state.prizes.championshipDrawHistory = state.prizes.championshipDrawHistory.filter(h => h.id !== drawId);
+    if (prize) prize.stock = Number(prize.stock || 0) + restoreQty;
+    await saveState(false);
+    return true;
+  }
+
+  async function drawChampionshipPrize(week, prizeName, winnerCount) {
+    if (!state.championship.started) throw new Error('Championship has not started yet.');
+
+    const race = state.championship.races[Number(week) - 1];
+    const eligible = (race?.results || []).filter(r => r.name && Number(r.finish) > 0);
+    if (!eligible.length) throw new Error('Championship Week ' + week + ' has no eligible finished racers.');
+
+    const prize = getPrize(prizeName);
+    if (!prize) throw new Error('Prize "' + prizeName + '" is not configured.');
+
+    const winners = Math.max(1, Number(winnerCount) || 1);
+    if (winners > eligible.length) {
+      throw new Error('Championship Week ' + week + ' only has ' + eligible.length + ' eligible racers.');
+    }
+
+    const totalQty = winners * Number(prize.qtyPerWinner || 1);
+    const available = Number(prize.stock || 0) - Number(prize.reserve || 0);
+    if (available < totalQty) {
+      throw new Error('Not enough ' + prize.name + '. Need ' + totalQty + '; only ' + available + ' available above reserve.');
+    }
+
+    if (!confirm(
+      'Championship Week ' + week + ' random draw\n\n' +
+      eligible.length + ' eligible racers\n' +
+      winners + ' winner(s)\n' +
+      prize.qtyPerWinner + 'x ' + prize.name + ' each\n\nRun random draw?'
+    )) return null;
+
+    await createSnapshot('before_championship_prize_draw');
+
+    const selected = randomUnique(eligible, winners);
+    const drawId = 'CHAMP-W' + week + '-' + Date.now();
+    const now = new Date().toISOString();
+
+    selected.forEach((winner, index) => {
+      state.prizes.championshipDrawHistory.push({
+        id: drawId,
+        timestamp: now,
+        type: 'CHAMPIONSHIP',
+        week: Number(week),
+        winnerNumber: index + 1,
+        racerId: winner.id || '',
+        racer: winner.name,
+        prize: prize.name,
+        qty: Number(prize.qtyPerWinner || 1),
+        eligibleCount: eligible.length,
+        randomSource: window.crypto?.getRandomValues ? 'crypto' : 'math'
+      });
+    });
+
+    prize.stock = Number(prize.stock || 0) - totalQty;
+    await saveState(false);
+    return {drawId, selected, prize: clone(prize)};
+  }
+
+  function groupedChampionshipDraws(limit = 8) {
+    const byId = new Map();
+    for (const h of state.prizes.championshipDrawHistory) {
+      const id = h.id || ('legacy-champ-' + h.week + '-' + (h.timestamp || '') + '-' + (h.prize || ''));
+      if (!byId.has(id)) {
+        byId.set(id, {
+          id,
+          week: h.week,
+          timestamp: h.timestamp || '',
+          prize: h.prize,
+          winners: [],
+          restorable: Boolean(h.id)
+        });
+      }
+      byId.get(id).winners.push(h);
+    }
+
+    return [...byId.values()]
+      .sort((a,b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+      .slice(0, limit);
+  }
+
   // ---------- share messages ----------
   function shareTop8() {
     const s = aggregateQualifying();
