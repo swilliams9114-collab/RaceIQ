@@ -2370,31 +2370,36 @@ Join the race, earn points, and fight for a Championship spot!`,
     return items.filter(item => normName(item.name).includes(q));
   }
 
+  function blankPlacementConfig() {
+    return {first:[], second:[], third:[], awardId:'', awardedAt:''};
+  }
+
   function placementConfig(week, mode = 'WEEKLY') {
     if (mode === 'OVERALL') {
       const cfg = state.prizes.placementOverall;
-      if (!Array.isArray(cfg.first)) cfg.first = [];
-      if (!Array.isArray(cfg.second)) cfg.second = [];
-      if (!Array.isArray(cfg.third)) cfg.third = [];
+      ['first','second','third'].forEach(key => { if (!Array.isArray(cfg[key])) cfg[key] = []; });
+      if (!cfg.awardId) cfg.awardId = '';
+      if (!cfg.awardedAt) cfg.awardedAt = '';
+      return cfg;
+    }
+
+    if (mode === 'CHAMP_OVERALL') {
+      const cfg = state.prizes.championshipPlacementOverall;
+      ['first','second','third'].forEach(key => { if (!Array.isArray(cfg[key])) cfg[key] = []; });
       if (!cfg.awardId) cfg.awardId = '';
       if (!cfg.awardedAt) cfg.awardedAt = '';
       return cfg;
     }
 
     const key = String(Number(week) || 1);
-    if (!state.prizes.placementByWeek[key]) {
-      state.prizes.placementByWeek[key] = {
-        first: [],
-        second: [],
-        third: [],
-        awardId: '',
-        awardedAt: ''
-      };
-    }
-    const cfg = state.prizes.placementByWeek[key];
-    if (!Array.isArray(cfg.first)) cfg.first = [];
-    if (!Array.isArray(cfg.second)) cfg.second = [];
-    if (!Array.isArray(cfg.third)) cfg.third = [];
+    const store = mode === 'CHAMP_WEEKLY'
+      ? state.prizes.championshipPlacementByWeek
+      : state.prizes.placementByWeek;
+
+    if (!store[key]) store[key] = blankPlacementConfig();
+
+    const cfg = store[key];
+    ['first','second','third'].forEach(k => { if (!Array.isArray(cfg[k])) cfg[k] = []; });
     if (!cfg.awardId) cfg.awardId = '';
     if (!cfg.awardedAt) cfg.awardedAt = '';
     return cfg;
@@ -2414,23 +2419,32 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   function placementTargetRacers(week, mode = 'WEEKLY') {
     if (mode === 'OVERALL') {
-      return aggregateQualifying().slice(0,3).map(r => ({
-        id: r.id || '',
-        name: r.name,
-        finish: r.rank
-      }));
+      return aggregateQualifying().slice(0,3).map(r => ({id:r.id||'', name:r.name, finish:r.rank}));
     }
 
-    const race = state.qualifying[Number(week) - 1];
+    if (mode === 'CHAMP_OVERALL') {
+      return aggregateChampionship().slice(0,3).map(r => ({id:r.id||'', name:r.name, finish:r.rank}));
+    }
+
+    const race = mode === 'CHAMP_WEEKLY'
+      ? state.championship.races[Number(week) - 1]
+      : state.qualifying[Number(week) - 1];
+
     return (race?.results || [])
       .filter(r => Number(r.finish) >= 1 && Number(r.finish) <= 3 && r.name)
       .sort((a,b) => Number(a.finish) - Number(b.finish));
   }
 
+  function placementModeLabel(mode, week) {
+    if (mode === 'OVERALL') return 'Overall Qualifying Top 3';
+    if (mode === 'CHAMP_OVERALL') return 'Final Championship Top 3';
+    if (mode === 'CHAMP_WEEKLY') return 'Championship Week ' + week;
+    return 'Qualifying Week ' + week;
+  }
+
   async function addPlacementPrize(week, place, mode = 'WEEKLY') {
     const cfg = placementConfig(week, mode);
-    const label = mode === 'OVERALL' ? 'overall qualifier' : 'weekly';
-    if (cfg.awardId) throw new Error('These ' + label + ' placement prizes have already been awarded. Undo them before editing.');
+    if (cfg.awardId) throw new Error('These placement prizes have already been awarded. Undo them before editing.');
 
     const select = document.getElementById('ri-place-' + place + '-prize');
     const qtyInput = document.getElementById('ri-place-' + place + '-qty');
@@ -2447,12 +2461,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       existing.mv = Number(prize.mv || 0);
       existing.itemId = prize.itemId || '';
     } else {
-      list.push({
-        name: prize.name,
-        itemId: prize.itemId || '',
-        mv: Number(prize.mv || 0),
-        qty
-      });
+      list.push({name:prize.name,itemId:prize.itemId||'',mv:Number(prize.mv||0),qty});
     }
 
     await saveState(false);
@@ -2471,10 +2480,17 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (mode === 'OVERALL') {
       const completed = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
       if (completed < state.season.qualifyingWeeks) {
-        throw new Error('Overall Qualifying Top 3 cannot be awarded until all ' + state.season.qualifyingWeeks + ' qualifying races are complete.');
+        throw new Error('Overall Qualifying Top 3 cannot be awarded until all qualifying races are complete.');
+      }
+    } else if (mode === 'CHAMP_OVERALL') {
+      const completed = state.championship.races.filter(r => displayStatus(r.status) === 'Completed').length;
+      if (!state.championship.started || completed < state.season.championshipWeeks) {
+        throw new Error('Final Championship Top 3 cannot be awarded until all Championship races are complete.');
       }
     } else {
-      const race = state.qualifying[Number(week) - 1];
+      const race = mode === 'CHAMP_WEEKLY'
+        ? state.championship.races[Number(week) - 1]
+        : state.qualifying[Number(week) - 1];
       if (!race || !(race.results || []).length) throw new Error('Sync the race results before awarding placement prizes.');
     }
 
@@ -2485,9 +2501,9 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (podium.length < 3) throw new Error('RaceIQ needs a complete Top 3 before awarding placement prizes.');
 
     const plans = [
-      {place:1, racer:podium.find(r => Number(r.finish) === 1), items:cfg.first},
-      {place:2, racer:podium.find(r => Number(r.finish) === 2), items:cfg.second},
-      {place:3, racer:podium.find(r => Number(r.finish) === 3), items:cfg.third}
+      {place:1,racer:podium.find(r=>Number(r.finish)===1),items:cfg.first},
+      {place:2,racer:podium.find(r=>Number(r.finish)===2),items:cfg.second},
+      {place:3,racer:podium.find(r=>Number(r.finish)===3),items:cfg.third}
     ];
 
     const configured = plans.flatMap(p => (p.items || []).map(item => ({...item, place:p.place, racer:p.racer})));
@@ -2511,14 +2527,12 @@ Join the race, earn points, and fight for a Championship spot!`,
       return p.place + (p.place===1?'st':p.place===2?'nd':'rd') + ': ' + p.racer.name + ' — ' + items;
     }).join('\n');
 
-    const title = mode === 'OVERALL' ? 'Overall Qualifying Top 3' : 'Week ' + week;
+    const title = placementModeLabel(mode, week);
     if (!confirm('Award ' + title + ' placement prizes?\n\n' + lines + '\n\nThis will deduct configured quantities from Prize Inventory.')) return null;
 
-    await createSnapshot(mode === 'OVERALL' ? 'before_overall_placement_prizes' : 'before_placement_prizes');
+    await createSnapshot('before_' + mode.toLowerCase() + '_placement_prizes');
 
-    const awardId = mode === 'OVERALL'
-      ? 'PLACEMENT-QUALIFIERS-' + Date.now()
-      : 'PLACEMENT-W' + week + '-' + Date.now();
+    const awardId = 'PLACEMENT-' + mode + '-' + (mode.includes('WEEKLY') ? week + '-' : '') + Date.now();
     const now = new Date().toISOString();
 
     configured.forEach(item => {
@@ -2526,25 +2540,18 @@ Join the race, earn points, and fight for a Championship spot!`,
       prize.stock = Number(prize.stock || 0) - Number(item.qty || 0);
 
       state.prizes.placementHistory.push({
-        id: awardId,
-        timestamp: now,
-        type: mode === 'OVERALL' ? 'PLACEMENT_OVERALL' : 'PLACEMENT',
-        scope: mode,
-        week: mode === 'OVERALL' ? null : Number(week),
-        place: item.place,
-        racerId: item.racer.id || '',
-        racer: item.racer.name,
-        prize: prize.name,
-        itemId: prize.itemId || '',
-        qty: Number(item.qty || 0),
-        mv: Number(prize.mv || item.mv || 0)
+        id:awardId,timestamp:now,type:'PLACEMENT',scope:mode,
+        week:mode.includes('WEEKLY')?Number(week):null,
+        place:item.place,racerId:item.racer.id||'',racer:item.racer.name,
+        prize:prize.name,itemId:prize.itemId||'',qty:Number(item.qty||0),
+        mv:Number(prize.mv||item.mv||0)
       });
     });
 
     cfg.awardId = awardId;
     cfg.awardedAt = now;
     await saveState(false);
-    return {awardId, plans, mode};
+    return {awardId,plans,mode};
   }
 
   async function undoPlacementPrizes(week, mode = 'WEEKLY') {
@@ -2554,10 +2561,9 @@ Join the race, earn points, and fight for a Championship spot!`,
     const entries = state.prizes.placementHistory.filter(h => h.id === cfg.awardId);
     if (!entries.length) throw new Error('Placement award history could not be found.');
 
-    const label = mode === 'OVERALL' ? 'Overall Qualifying Top 3' : 'Week ' + week;
-    if (!confirm('Undo ' + label + ' placement awards?\n\nPrize stock will be restored and the placement award record removed.')) return false;
+    if (!confirm('Undo ' + placementModeLabel(mode, week) + ' placement awards?\n\nPrize stock will be restored and the placement award record removed.')) return false;
 
-    await createSnapshot(mode === 'OVERALL' ? 'before_undo_overall_placement_prizes' : 'before_undo_placement_prizes');
+    await createSnapshot('before_undo_' + mode.toLowerCase() + '_placement_prizes');
 
     entries.forEach(entry => {
       const prize = state.prizes.inventory.find(p => normName(p.name) === normName(entry.prize));
