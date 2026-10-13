@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.4
+// @version      1.1.5
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.4',
+    version: '1.1.5',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -91,7 +91,18 @@
         awardId: '',
         awardedAt: ''
       },
+      championshipPlacementByWeek: {},
+      championshipPlacementOverall: {
+        first: [],
+        second: [],
+        third: [],
+        awardId: '',
+        awardedAt: ''
+      },
       placementHistory: [],
+      championshipDrawHistory: [],
+      randomConfigByWeek: {},
+      championshipRandomConfigByWeek: {},
       itemCatalog: [],
       catalogFetchedAt: ''
     },
@@ -361,7 +372,23 @@ Join the race, earn points, and fight for a Championship spot!`,
     });
     if (!state.prizes.placementOverall.awardId) state.prizes.placementOverall.awardId = '';
     if (!state.prizes.placementOverall.awardedAt) state.prizes.placementOverall.awardedAt = '';
+
+    if (!state.prizes.championshipPlacementByWeek || typeof state.prizes.championshipPlacementByWeek !== 'object') {
+      state.prizes.championshipPlacementByWeek = {};
+    }
+    if (!state.prizes.championshipPlacementOverall || typeof state.prizes.championshipPlacementOverall !== 'object') {
+      state.prizes.championshipPlacementOverall = clone(DEFAULT_STATE.prizes.championshipPlacementOverall);
+    }
+    ['first','second','third'].forEach(key => {
+      if (!Array.isArray(state.prizes.championshipPlacementOverall[key])) state.prizes.championshipPlacementOverall[key] = [];
+    });
+    if (!state.prizes.championshipPlacementOverall.awardId) state.prizes.championshipPlacementOverall.awardId = '';
+    if (!state.prizes.championshipPlacementOverall.awardedAt) state.prizes.championshipPlacementOverall.awardedAt = '';
+
     if (!Array.isArray(state.prizes.placementHistory)) state.prizes.placementHistory = [];
+    if (!Array.isArray(state.prizes.championshipDrawHistory)) state.prizes.championshipDrawHistory = [];
+    if (!state.prizes.randomConfigByWeek || typeof state.prizes.randomConfigByWeek !== 'object') state.prizes.randomConfigByWeek = {};
+    if (!state.prizes.championshipRandomConfigByWeek || typeof state.prizes.championshipRandomConfigByWeek !== 'object') state.prizes.championshipRandomConfigByWeek = {};
     if (!Array.isArray(state.prizes.itemCatalog)) state.prizes.itemCatalog = [];
     if (!state.prizes.catalogFetchedAt) state.prizes.catalogFetchedAt = '';
     state.prizes.inventory.forEach(p => {
