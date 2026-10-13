@@ -2143,6 +2143,36 @@ Join the race, earn points, and fight for a Championship spot!`,
       </div>
 
       <div class="ri-card">
+        <h3>Championship Random Draw</h3>
+        <div class="ri-grid">
+          <div class="ri-stat">Eligible<b id="ri-champ-eligible-count">${champEligible.length}</b></div>
+          <div class="ri-stat">Prior Winners<b id="ri-champ-prior-count">${champPrior}</b></div>
+          <div class="ri-stat">Available<b id="ri-champ-available-count">${champAvailable}</b></div>
+          <div class="ri-stat">Needed<b id="ri-champ-needed-count">${champNeeded}</b></div>
+        </div>
+
+        <label class="ri-label">Championship Week</label>
+        <select class="ri-select" id="ri-champ-draw-week">
+          ${state.championship.races.map(r=>`<option value="${r.week}" ${r.week===defaultChampWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+        </select>
+
+        <label class="ri-label">Prize</label>
+        <select class="ri-select" id="ri-champ-draw-prize">
+          ${state.prizes.inventory.map(p=>`<option value="${esc(p.name)}" ${p.name===champDrawCfg.prizeName?'selected':''}>${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`).join('')}
+        </select>
+
+        <label class="ri-label">Number of winners</label>
+        <input class="ri-input" id="ri-champ-draw-count" type="number" min="1" value="${champDrawCfg.winners || state.settings.defaultWinners}">
+
+        <div class="ri-small" id="ri-champ-draw-summary">
+          Championship draws use only finishers from the selected Championship race.
+        </div><br>
+
+        <button class="ri-btn" data-action="preview-champ-prize-pool">View Eligible Racers</button>
+        <button class="ri-btn" data-action="draw-champ-prize">Run Championship Draw</button>
+      </div>
+
+      <div class="ri-card">
         <h3>Prize Inventory</h3>
         <div class="ri-race-list">${inv || '<div class="ri-small">No prizes configured.</div>'}</div><br>
 
