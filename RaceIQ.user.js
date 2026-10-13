@@ -2065,6 +2065,28 @@ Join the race, earn points, and fight for a Championship spot!`,
       `;
     }).join('');
 
+    const recentChampDraws = groupedChampionshipDraws().map(draw => {
+      const winnerNames = draw.winners.map(w => esc(w.racer)).join(', ');
+      const totalQty = draw.winners.reduce((sum,w) => sum + Number(w.qty || 0), 0);
+      return `
+        <div class="ri-race-card">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">Championship W${draw.week} — ${esc(draw.prize)}</div>
+              <div class="ri-small">${draw.winners.length} winner(s) • ${totalQty}x total</div>
+            </div>
+            <span class="ri-pill">${draw.timestamp ? new Date(draw.timestamp).toLocaleString() : 'Saved draw'}</span>
+          </div>
+          <div class="ri-small" style="margin-top:8px">${winnerNames}</div>
+          ${draw.restorable ? `
+            <div class="ri-race-actions">
+              <button class="ri-btn danger" data-action="undo-champ-prize-draw" data-draw-id="${esc(draw.id)}">Undo Draw</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
     return `
       <div class="ri-card">
         <h3>Placement Prizes</h3>
