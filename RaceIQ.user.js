@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.2
+// @version      1.1.3
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.2',
+    version: '1.1.3',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -83,6 +83,8 @@
         {name: 'Xanax', itemId: '', mv: 0, stock: 0, qtyPerWinner: 1, reserve: 0}
       ],
       history: [],
+      placementByWeek: {},
+      placementHistory: [],
       itemCatalog: [],
       catalogFetchedAt: ''
     },
@@ -127,6 +129,7 @@ Join the race, earn points, and fight for a Championship spot!`,
   let state = null;
   let factionIndex = { byId: new Set(), byName: new Set(), namesById: new Map(), count: 0, loadedAt: 0 };
   let currentTab = 'home';
+  let placementPrizeWeek = 0;
   let busy = false;
 
   // ---------- helpers ----------
@@ -341,6 +344,8 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (!state.prizes || typeof state.prizes !== 'object') state.prizes = clone(DEFAULT_STATE.prizes);
     if (!Array.isArray(state.prizes.inventory)) state.prizes.inventory = clone(DEFAULT_STATE.prizes.inventory);
     if (!Array.isArray(state.prizes.history)) state.prizes.history = [];
+    if (!state.prizes.placementByWeek || typeof state.prizes.placementByWeek !== 'object') state.prizes.placementByWeek = {};
+    if (!Array.isArray(state.prizes.placementHistory)) state.prizes.placementHistory = [];
     if (!Array.isArray(state.prizes.itemCatalog)) state.prizes.itemCatalog = [];
     if (!state.prizes.catalogFetchedAt) state.prizes.catalogFetchedAt = '';
     state.prizes.inventory.forEach(p => {
