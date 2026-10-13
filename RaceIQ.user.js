@@ -2554,6 +2554,14 @@ Join the race, earn points, and fight for a Championship spot!`,
       });
     });
 
+    const placementWeekEl = document.getElementById('ri-placement-week');
+    if (placementWeekEl) {
+      placementWeekEl.addEventListener('change', () => {
+        placementPrizeWeek = Number(placementWeekEl.value) || latestSyncedQualifyingWeek();
+        render();
+      });
+    }
+
     const drawWeekEl = document.getElementById('ri-draw-week');
     const drawPrizeEl = document.getElementById('ri-draw-prize');
     const drawCountEl = document.getElementById('ri-draw-count');
@@ -2681,6 +2689,25 @@ Join the race, earn points, and fight for a Championship spot!`,
         }
         if (action === 'results-message') {
           previewAndCopy(resultsAnnouncement(currentQualifyingWeek()), 'Results Post'); return;
+        }
+        if (action === 'add-placement-prize') {
+          await addPlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place));
+          toast('Placement prize added.');
+          return;
+        }
+        if (action === 'remove-placement-prize') {
+          await removePlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place), Number(btn.dataset.index));
+          toast('Placement prize removed.');
+          return;
+        }
+        if (action === 'award-placement-prizes') {
+          const result = await awardPlacementPrizes(Number(btn.dataset.week));
+          if (result) toast('Placement prizes awarded and stock deducted.');
+          return;
+        }
+        if (action === 'undo-placement-prizes') {
+          if (await undoPlacementPrizes(Number(btn.dataset.week))) toast('Placement awards undone and stock restored.');
+          return;
         }
         if (action === 'edit-prize') { await editPrize(Number(btn.dataset.index)); return; }
         if (action === 'remove-prize') {
