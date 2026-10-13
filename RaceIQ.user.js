@@ -1794,13 +1794,21 @@ Join the race, earn points, and fight for a Championship spot!`,
     const available = Math.max(0, Number(defaultPrize.stock || 0) - Number(defaultPrize.reserve || 0));
     const needed = Number(state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
     const priorDraws = drawHistoryForWeek(defaultWeek);
-    const selectedPlacementWeek = placementPrizeWeek || defaultWeek;
-    const selectedPlacementMode = placementPrizeMode === 'OVERALL' ? 'OVERALL' : 'WEEKLY';
+    const validPlacementModes = ['WEEKLY','OVERALL','CHAMP_WEEKLY','CHAMP_OVERALL'];
+    const selectedPlacementMode = validPlacementModes.includes(placementPrizeMode) ? placementPrizeMode : 'WEEKLY';
+    const isChampPlacement = selectedPlacementMode.startsWith('CHAMP_');
+    const isOverallPlacement = selectedPlacementMode.endsWith('OVERALL');
+    const maxPlacementWeek = isChampPlacement ? state.season.championshipWeeks : state.season.qualifyingWeeks;
+    const fallbackPlacementWeek = isChampPlacement ? currentChampionshipWeek() : defaultWeek;
+    const selectedPlacementWeek = Math.min(maxPlacementWeek, Math.max(1, Number(placementPrizeWeek || fallbackPlacementWeek)));
     const placement = placementConfig(selectedPlacementWeek, selectedPlacementMode);
     const placementPodium = placementTargetRacers(selectedPlacementWeek, selectedPlacementMode);
     const placementTotalMV = placementPrizeTotalMV(placement);
     const qualifyingCompleted = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
-    const overallReady = qualifyingCompleted >= state.season.qualifyingWeeks && placementPodium.length >= 3;
+    const championshipCompleted = state.championship.races.filter(r => displayStatus(r.status) === 'Completed').length;
+    const overallReady = isChampPlacement
+      ? championshipCompleted >= state.season.championshipWeeks && placementPodium.length >= 3
+      : qualifyingCompleted >= state.season.qualifyingWeeks && placementPodium.length >= 3;
 
     const placementOptions = state.prizes.inventory.map(p =>
       `<option value="${esc(p.name)}">${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`
@@ -1910,20 +1918,24 @@ Join the race, earn points, and fight for a Championship spot!`,
 
         <label class="ri-label">Placement Type</label>
         <select class="ri-select" id="ri-placement-mode">
-          <option value="WEEKLY" ${selectedPlacementMode==='WEEKLY'?'selected':''}>Race Week Podium</option>
+          <option value="WEEKLY" ${selectedPlacementMode==='WEEKLY'?'selected':''}>Qualifying Race Week Podium</option>
           <option value="OVERALL" ${selectedPlacementMode==='OVERALL'?'selected':''}>Overall Qualifying Top 3</option>
+          <option value="CHAMP_WEEKLY" ${selectedPlacementMode==='CHAMP_WEEKLY'?'selected':''}>Championship Race Week Podium</option>
+          <option value="CHAMP_OVERALL" ${selectedPlacementMode==='CHAMP_OVERALL'?'selected':''}>Final Championship Top 3</option>
         </select>
 
-        <div style="${selectedPlacementMode==='WEEKLY'?'':'display:none'}">
-          <label class="ri-label">Race Week</label>
+        <div style="${!isOverallPlacement?'':'display:none'}">
+          <label class="ri-label">${isChampPlacement ? 'Championship Week' : 'Qualifying Week'}</label>
           <select class="ri-select" id="ri-placement-week">
-            ${state.qualifying.map(r => `<option value="${r.week}" ${r.week===selectedPlacementWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+            ${(isChampPlacement ? state.championship.races : state.qualifying).map(r => `<option value="${r.week}" ${r.week===selectedPlacementWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
           </select>
         </div>
 
-        <div class="ri-small" style="margin-top:8px;${selectedPlacementMode==='OVERALL'?'':'display:none'}">
-          Final qualifying standings • ${qualifyingCompleted}/${state.season.qualifyingWeeks} qualifying races complete
-          ${overallReady ? ' • Ready to award' : ' • Configure prizes now; awarding unlocks after qualifying is complete.'}
+        <div class="ri-small" style="margin-top:8px;${isOverallPlacement?'':'display:none'}">
+          ${isChampPlacement
+            ? 'Final Championship standings • ' + championshipCompleted + '/' + state.season.championshipWeeks + ' Championship races complete'
+            : 'Final qualifying standings • ' + qualifyingCompleted + '/' + state.season.qualifyingWeeks + ' qualifying races complete'}
+          ${overallReady ? ' • Ready to award' : ' • Configure prizes now; awarding unlocks when the phase is complete.'}
         </div>
 
         <div class="ri-grid" style="margin-top:8px">
