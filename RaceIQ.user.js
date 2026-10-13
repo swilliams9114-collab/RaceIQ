@@ -2071,7 +2071,7 @@ Join the race, earn points, and fight for a Championship spot!`,
         <div class="ri-card">
           <h3>${label}</h3>
           <div class="ri-small">
-            ${racer ? (selectedPlacementMode === 'OVERALL' ? 'Current overall #' + place + ': ' : 'Current racer: ') + esc(racer.name) : (selectedPlacementMode === 'OVERALL' ? 'Overall position will populate from qualifying standings.' : 'Winner will populate after results are synced.')}
+            ${racer ? (isOverallPlacement ? 'Current overall #' + place + ': ' : 'Current racer: ') + esc(racer.name) : (isOverallPlacement ? 'Overall position will populate from standings.' : 'Winner will populate after results are synced.')}
             • Prize MV ${prizeMoney(total)}
           </div>
           <div class="ri-race-list">${items || '<div class="ri-small" style="margin-top:8px">No prizes configured.</div>'}</div>
