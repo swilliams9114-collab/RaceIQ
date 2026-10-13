@@ -130,7 +130,8 @@ This is qualifying race {week} of {qualifyingWeeks}.
 {cutoffLine}
 {bubbleLine}
 
-Weekly random prize: {winnerCount} winner(s), {prizeQty}x {prizeName} each.
+PRIZES
+{prizeSummary}
 
 Join the race, earn points, and fight for a Championship spot!`,
       reminderTemplate:
@@ -396,6 +397,13 @@ Join the race, earn points, and fight for a Championship spot!`,
       if (p.mv == null) p.mv = 0;
     });
     if (!state.settings || typeof state.settings !== 'object') state.settings = clone(DEFAULT_STATE.settings);
+    if (typeof state.settings.announcementTemplate === 'string' &&
+        state.settings.announcementTemplate.includes('Weekly random prize: {winnerCount} winner(s), {prizeQty}x {prizeName} each.')) {
+      state.settings.announcementTemplate = state.settings.announcementTemplate.replace(
+        'Weekly random prize: {winnerCount} winner(s), {prizeQty}x {prizeName} each.',
+        'PRIZES\n{prizeSummary}'
+      );
+    }
     if (!state.settings.announcementTemplate) state.settings.announcementTemplate = DEFAULT_STATE.settings.announcementTemplate;
     if (!state.settings.reminderTemplate) state.settings.reminderTemplate = DEFAULT_STATE.settings.reminderTemplate;
 
@@ -1472,6 +1480,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       winnerCount: state.settings.defaultWinners,
       prizeQty: xanax.qtyPerWinner || 1,
       prizeName: xanax.name || 'Xanax',
+      prizeSummary: prizeSummaryFor('QUALIFYING', week),
       cutoffLine: eighth ? `Current cutoff: #8 ${eighth.name} — ${eighth.total} pts` : '',
       bubbleLine: ninth ? `Bubble: #9 ${ninth.name} — ${ninth.total} pts` : ''
     };
@@ -2511,7 +2520,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
         <div class="ri-small">
           Available placeholders: {week}, {qualifyingWeeks}, {race}, {date}, {time}, {track}, {laps}, {class},
-          {upgrades}, {upgradesShort}, {password}, {winnerCount}, {prizeQty}, {prizeName}, {cutoffLine}, {bubbleLine}
+          {upgrades}, {upgradesShort}, {password}, {winnerCount}, {prizeQty}, {prizeName}, {prizeSummary}, {cutoffLine}, {bubbleLine}
         </div><br>
 
         <button class="ri-btn" data-action="save-message-templates">Save Message Templates</button>
