@@ -2666,7 +2666,8 @@ Join the race, earn points, and fight for a Championship spot!`,
     const placementModeEl = document.getElementById('ri-placement-mode');
     if (placementModeEl) {
       placementModeEl.addEventListener('change', () => {
-        placementPrizeMode = placementModeEl.value === 'OVERALL' ? 'OVERALL' : 'WEEKLY';
+        const allowed = ['WEEKLY','OVERALL','CHAMP_WEEKLY','CHAMP_OVERALL'];
+        placementPrizeMode = allowed.includes(placementModeEl.value) ? placementModeEl.value : 'WEEKLY';
         render();
       });
     }
