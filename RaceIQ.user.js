@@ -2618,6 +2618,14 @@ Join the race, earn points, and fight for a Championship spot!`,
       });
     });
 
+    const placementModeEl = document.getElementById('ri-placement-mode');
+    if (placementModeEl) {
+      placementModeEl.addEventListener('change', () => {
+        placementPrizeMode = placementModeEl.value === 'OVERALL' ? 'OVERALL' : 'WEEKLY';
+        render();
+      });
+    }
+
     const placementWeekEl = document.getElementById('ri-placement-week');
     if (placementWeekEl) {
       placementWeekEl.addEventListener('change', () => {
@@ -2755,22 +2763,22 @@ Join the race, earn points, and fight for a Championship spot!`,
           previewAndCopy(resultsAnnouncement(currentQualifyingWeek()), 'Results Post'); return;
         }
         if (action === 'add-placement-prize') {
-          await addPlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place));
+          await addPlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place), btn.dataset.mode || 'WEEKLY');
           toast('Placement prize added.');
           return;
         }
         if (action === 'remove-placement-prize') {
-          await removePlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place), Number(btn.dataset.index));
+          await removePlacementPrize(Number(btn.dataset.week), Number(btn.dataset.place), Number(btn.dataset.index), btn.dataset.mode || 'WEEKLY');
           toast('Placement prize removed.');
           return;
         }
         if (action === 'award-placement-prizes') {
-          const result = await awardPlacementPrizes(Number(btn.dataset.week));
+          const result = await awardPlacementPrizes(Number(btn.dataset.week), btn.dataset.mode || 'WEEKLY');
           if (result) toast('Placement prizes awarded and stock deducted.');
           return;
         }
         if (action === 'undo-placement-prizes') {
-          if (await undoPlacementPrizes(Number(btn.dataset.week))) toast('Placement awards undone and stock restored.');
+          if (await undoPlacementPrizes(Number(btn.dataset.week), btn.dataset.mode || 'WEEKLY')) toast('Placement awards undone and stock restored.');
           return;
         }
         if (action === 'edit-prize') { await editPrize(Number(btn.dataset.index)); return; }
