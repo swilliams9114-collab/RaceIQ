@@ -1881,10 +1881,23 @@ Join the race, earn points, and fight for a Championship spot!`,
         <h3>Placement Prizes</h3>
         <div class="ri-small">Configure one or more prizes for each podium position. These awards are separate from the random drawing.</div>
 
-        <label class="ri-label">Race Week</label>
-        <select class="ri-select" id="ri-placement-week">
-          ${state.qualifying.map(r => `<option value="${r.week}" ${r.week===selectedPlacementWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+        <label class="ri-label">Placement Type</label>
+        <select class="ri-select" id="ri-placement-mode">
+          <option value="WEEKLY" ${selectedPlacementMode==='WEEKLY'?'selected':''}>Race Week Podium</option>
+          <option value="OVERALL" ${selectedPlacementMode==='OVERALL'?'selected':''}>Overall Qualifying Top 3</option>
         </select>
+
+        <div style="${selectedPlacementMode==='WEEKLY'?'':'display:none'}">
+          <label class="ri-label">Race Week</label>
+          <select class="ri-select" id="ri-placement-week">
+            ${state.qualifying.map(r => `<option value="${r.week}" ${r.week===selectedPlacementWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="ri-small" style="margin-top:8px;${selectedPlacementMode==='OVERALL'?'':'display:none'}">
+          Final qualifying standings • ${qualifyingCompleted}/${state.season.qualifyingWeeks} qualifying races complete
+          ${overallReady ? ' • Ready to award' : ' • Configure prizes now; awarding unlocks after qualifying is complete.'}
+        </div>
 
         <div class="ri-grid" style="margin-top:8px">
           <div class="ri-stat">Prize Pool MV<b>${prizeMoney(placementTotalMV)}</b></div>
@@ -1900,8 +1913,8 @@ Join the race, earn points, and fight for a Championship spot!`,
 
       <div class="ri-card">
         ${placement.awardId
-          ? `<button class="ri-btn danger" data-action="undo-placement-prizes" data-week="${selectedPlacementWeek}">Undo Placement Awards</button>`
-          : `<button class="ri-btn" data-action="award-placement-prizes" data-week="${selectedPlacementWeek}">Award Placement Prizes</button>`
+          ? `<button class="ri-btn danger" data-action="undo-placement-prizes" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}">Undo Placement Awards</button>`
+          : `<button class="ri-btn" data-action="award-placement-prizes" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}">Award Placement Prizes</button>`
         }
         <div class="ri-small" style="margin-top:8px">Awarding deducts prize quantities from inventory. Podium racers remain eligible for the random draw.</div>
       </div>
