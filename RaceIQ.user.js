@@ -1754,13 +1754,15 @@ Join the race, earn points, and fight for a Championship spot!`,
           <div class="ri-race-card-head">
             <div>
               <div class="ri-race-title">${esc(p.name)}</div>
-              <div class="ri-small">${usable} available above reserve</div>
+              <div class="ri-small">${usable} available above reserve • MV ${prizeMoney(p.mv || 0)}</div>
             </div>
             <span class="ri-pill">${p.stock} stock</span>
           </div>
           <div class="ri-race-meta">
             <span class="ri-pill">${p.qtyPerWinner} / winner</span>
             <span class="ri-pill">${p.reserve} reserve</span>
+            <span class="ri-pill">MV ${prizeMoney(p.mv || 0)}</span>
+            <span class="ri-pill">Stock MV ${prizeMoney(Number(p.stock || 0) * Number(p.mv || 0))}</span>
           </div>
           <div class="ri-race-actions">
             <button class="ri-btn secondary" data-action="edit-prize" data-index="${i}">Edit Prize</button>
@@ -1817,7 +1819,7 @@ Join the race, earn points, and fight for a Championship spot!`,
 
         <label class="ri-label">Prize</label>
         <select class="ri-select" id="ri-draw-prize">
-          ${state.prizes.inventory.map((p,i)=>`<option value="${esc(p.name)}" ${i===0?'selected':''}>${esc(p.name)}</option>`).join('')}
+          ${state.prizes.inventory.map((p,i)=>`<option value="${esc(p.name)}" ${i===0?'selected':''}>${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`).join('')}
         </select>
 
         <label class="ri-label">Number of winners</label>
@@ -1834,7 +1836,20 @@ Join the race, earn points, and fight for a Championship spot!`,
       <div class="ri-card">
         <h3>Prize Inventory</h3>
         <div class="ri-race-list">${inv || '<div class="ri-small">No prizes configured.</div>'}</div><br>
+
+        <label class="ri-label">Add Prize</label>
+        <input class="ri-input" id="ri-new-prize-name" list="ri-prize-suggestions" placeholder="Type a few letters, e.g. fea">
+        <datalist id="ri-prize-suggestions">
+          ${(state.prizes.itemCatalog || []).map(item => `<option value="${esc(item.name)}">MV ${prizeMoney(item.mv || 0)}</option>`).join('')}
+        </datalist>
+
+        <div class="ri-small">
+          Type a few letters and select a Torn item. MV last refreshed:
+          ${state.prizes.catalogFetchedAt ? formatDateTime(state.prizes.catalogFetchedAt) : 'Not yet'}.
+        </div><br>
+
         <button class="ri-btn secondary" data-action="add-prize">Add Prize</button>
+        <button class="ri-btn secondary" data-action="refresh-prize-mv">Refresh Item MV</button>
       </div>
 
       <div class="ri-card">
@@ -2224,9 +2239,35 @@ Join the race, earn points, and fight for a Championship spot!`,
   }
 
   async function addPrize() {
-    const name = prompt('Prize name:');
-    if (!name) return;
-    state.prizes.inventory.push({name:name.trim(),stock:0,qtyPerWinner:1,reserve:0});
+    await refreshPrizeCatalog(false);
+
+    const input = document.getElementById('ri-new-prize-name');
+    const query = String(input?.value || '').trim();
+    if (!query) throw new Error('Type a few letters of the prize name first.');
+
+    const matches = prizeMatches(query);
+    if (!matches.length) throw new Error('No Torn item matched "' + query + '".');
+
+    const exact = matches.find(item => normName(item.name) === normName(query));
+    const chosen = exact || (matches.length === 1 ? matches[0] : null);
+
+    if (!chosen) {
+      throw new Error('Multiple items match. Keep typing or choose one of the suggestions.');
+    }
+
+    if (state.prizes.inventory.some(p => normName(p.name) === normName(chosen.name))) {
+      throw new Error(chosen.name + ' is already in Prize Inventory.');
+    }
+
+    state.prizes.inventory.push({
+      name: chosen.name,
+      itemId: chosen.id,
+      mv: chosen.mv,
+      stock: 0,
+      qtyPerWinner: 1,
+      reserve: 0
+    });
+
     await saveState(false);
   }
 
@@ -2246,7 +2287,18 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   function bindEvents() {
     document.querySelectorAll(`#${APP.panelId} [data-tab]`).forEach(btn => {
-      btn.addEventListener('click', () => { currentTab = btn.dataset.tab; render(); });
+      btn.addEventListener('click', () => {
+        currentTab = btn.dataset.tab;
+        render();
+
+        if (currentTab === 'prizes') {
+          refreshPrizeCatalog(false)
+            .then(changed => {
+              if (changed && currentTab === 'prizes') render();
+            })
+            .catch(err => console.warn('[RaceIQ] Prize catalog refresh failed', err));
+        }
+      });
     });
 
     const drawWeekEl = document.getElementById('ri-draw-week');
@@ -2278,7 +2330,8 @@ Join the race, earn points, and fight for a Championship spot!`,
       if (summary) {
         summary.textContent =
           `Equal chance for ${eligible.length} eligible Week ${week} racer(s). ` +
-          `${count} unique winner(s), ${prize?.qtyPerWinner || 1}x ${prize?.name || 'prize'} each.`;
+          `${count} unique winner(s), ${prize?.qtyPerWinner || 1}x ${prize?.name || 'prize'} each. ` +
+          `MV ${prizeMoney(prize?.mv || 0)} each item.`;
       }
     };
 
@@ -2381,7 +2434,16 @@ Join the race, earn points, and fight for a Championship spot!`,
           if (await removePrize(Number(btn.dataset.index))) toast('Prize removed.');
           return;
         }
-        if (action === 'add-prize') { await addPrize(); return; }
+        if (action === 'add-prize') {
+          await addPrize();
+          toast('Prize added.');
+          return;
+        }
+        if (action === 'refresh-prize-mv') {
+          await refreshPrizeCatalog(true);
+          toast('Prize item catalog and MV refreshed.');
+          return;
+        }
         if (action === 'preview-prize-pool') {
           const week = Number(document.getElementById('ri-draw-week').value);
           const eligible = eligibleForWeeklyDraw(week);
