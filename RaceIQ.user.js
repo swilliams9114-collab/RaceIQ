@@ -2214,13 +2214,20 @@ Join the race, earn points, and fight for a Championship spot!`,
       </div>
 
       <div class="ri-card">
-        <h3>Recent Draws</h3>
+        <h3>Recent Qualifying Draws</h3>
         <div class="ri-small">Undo restores the deducted prize stock and removes only that draw from RaceIQ history.</div><br>
         <div class="ri-race-list">
-          ${recentDraws || '<div class="ri-small">No prize draws yet.</div>'}
+          ${recentDraws || '<div class="ri-small">No qualifying prize draws yet.</div>'}
         </div>
         <br>
-        <button class="ri-btn secondary" data-action="copy-prize-winners">Copy Winners</button>
+        <button class="ri-btn secondary" data-action="copy-prize-winners">Copy Qualifying Winners</button>
+      </div>
+
+      <div class="ri-card">
+        <h3>Recent Championship Draws</h3>
+        <div class="ri-race-list">
+          ${recentChampDraws || '<div class="ri-small">No Championship prize draws yet.</div>'}
+        </div>
       </div>
     `;
   }
@@ -3126,11 +3133,41 @@ Join the race, earn points, and fight for a Championship spot!`,
           const week = Number(document.getElementById('ri-draw-week').value);
           const prize = document.getElementById('ri-draw-prize').value;
           const count = Number(document.getElementById('ri-draw-count').value);
+          await saveRandomConfig('QUALIFYING', week, prize, count);
           const draw = await drawWeeklyPrize(week, prize, count);
           if (draw) {
             const names = draw.selected.map((x,i)=>`${i+1}. ${x.name}`).join('\n');
             previewAndCopy(`AURORA SURREALIS — WEEK ${week} PRIZE WINNERS\n\n${names}\n\nEach winner receives ${draw.prize.qtyPerWinner}x ${draw.prize.name}.`, 'Prize Draw Complete');
           }
+          return;
+        }
+
+        if (action === 'preview-champ-prize-pool') {
+          const week = Number(document.getElementById('ri-champ-draw-week').value);
+          const race = state.championship.races[week - 1];
+          const eligible = (race?.results || []).filter(r => r.name && Number(r.finish) > 0);
+          if (!eligible.length) throw new Error('Championship Week ' + week + ' has no eligible finished racers.');
+          const names = eligible.slice().sort((a,b) => a.name.localeCompare(b.name)).map((r,i) => (i+1) + '. ' + r.name).join('\n');
+          alert('Championship Week ' + week + ' Eligible Prize Pool — ' + eligible.length + ' racers\n\n' + names);
+          return;
+        }
+
+        if (action === 'draw-champ-prize') {
+          const week = Number(document.getElementById('ri-champ-draw-week').value);
+          const prize = document.getElementById('ri-champ-draw-prize').value;
+          const count = Number(document.getElementById('ri-champ-draw-count').value);
+          await saveRandomConfig('CHAMPIONSHIP', week, prize, count);
+          const draw = await drawChampionshipPrize(week, prize, count);
+          if (draw) {
+            const names = draw.selected.map((x,i)=>(i+1)+'. '+x.name).join('\n');
+            previewAndCopy('AURORA SURREALIS — CHAMPIONSHIP WEEK ' + week + ' PRIZE WINNERS\n\n' + names + '\n\nEach winner receives ' + draw.prize.qtyPerWinner + 'x ' + draw.prize.name + '.', 'Championship Prize Draw Complete');
+          }
+          return;
+        }
+
+        if (action === 'undo-champ-prize-draw') {
+          const undone = await undoChampionshipPrizeDraw(btn.dataset.drawId);
+          if (undone) toast('Championship prize draw undone and stock restored.');
           return;
         }
         if (action === 'copy-projected-top8') {
