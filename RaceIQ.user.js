@@ -1788,7 +1788,7 @@ Join the race, earn points, and fight for a Championship spot!`,
               <div class="ri-race-title">${item.qty}x ${esc(item.name)}</div>
               <div class="ri-small">MV ${prizeMoney(item.mv || 0)} each • ${prizeMoney(Number(item.qty || 0) * Number(item.mv || 0))} total</div>
             </div>
-            ${!placement.awardId ? `<button class="ri-btn danger" data-action="remove-placement-prize" data-week="${selectedPlacementWeek}" data-place="${place}" data-index="${index}">Remove</button>` : ''}
+            ${!placement.awardId ? `<button class="ri-btn danger" data-action="remove-placement-prize" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}" data-place="${place}" data-index="${index}">Remove</button>` : ''}
           </div>
         </div>
       `).join('');
@@ -1799,7 +1799,7 @@ Join the race, earn points, and fight for a Championship spot!`,
         <div class="ri-card">
           <h3>${label}</h3>
           <div class="ri-small">
-            ${racer ? 'Current racer: ' + esc(racer.name) : 'Winner will populate after results are synced.'}
+            ${racer ? (selectedPlacementMode === 'OVERALL' ? 'Current overall #' + place + ': ' : 'Current racer: ') + esc(racer.name) : (selectedPlacementMode === 'OVERALL' ? 'Overall position will populate from qualifying standings.' : 'Winner will populate after results are synced.')}
             • Prize MV ${prizeMoney(total)}
           </div>
           <div class="ri-race-list">${items || '<div class="ri-small" style="margin-top:8px">No prizes configured.</div>'}</div>
@@ -1815,7 +1815,7 @@ Join the race, earn points, and fight for a Championship spot!`,
                 <input class="ri-input" id="ri-place-${place}-qty" type="number" min="1" value="1">
               </div>
             </div>
-            <button class="ri-btn secondary" data-action="add-placement-prize" data-week="${selectedPlacementWeek}" data-place="${place}">+ Add Prize</button>
+            <button class="ri-btn secondary" data-action="add-placement-prize" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}" data-place="${place}">+ Add Prize</button>
           ` : ''}
         </div>
       `;
