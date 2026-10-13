@@ -1768,12 +1768,12 @@ Join the race, earn points, and fight for a Championship spot!`,
     const needed = Number(state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
     const priorDraws = drawHistoryForWeek(defaultWeek);
     const selectedPlacementWeek = placementPrizeWeek || defaultWeek;
-    const placement = placementConfig(selectedPlacementWeek);
-    const placementRace = state.qualifying[selectedPlacementWeek - 1];
-    const placementPodium = (placementRace?.results || [])
-      .filter(r => Number(r.finish) >= 1 && Number(r.finish) <= 3)
-      .sort((a,b) => Number(a.finish) - Number(b.finish));
+    const selectedPlacementMode = placementPrizeMode === 'OVERALL' ? 'OVERALL' : 'WEEKLY';
+    const placement = placementConfig(selectedPlacementWeek, selectedPlacementMode);
+    const placementPodium = placementTargetRacers(selectedPlacementWeek, selectedPlacementMode);
     const placementTotalMV = placementPrizeTotalMV(placement);
+    const qualifyingCompleted = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
+    const overallReady = qualifyingCompleted >= state.season.qualifyingWeeks && placementPodium.length >= 3;
 
     const placementOptions = state.prizes.inventory.map(p =>
       `<option value="${esc(p.name)}">${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`
