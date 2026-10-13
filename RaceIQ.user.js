@@ -1054,6 +1054,50 @@ Join the race, earn points, and fight for a Championship spot!`,
     return state.prizes.history.filter(h => Number(h.week) === Number(week));
   }
 
+  function latestSyncedChampionshipWeek() {
+    const synced = state.championship.races
+      .filter(r => (r.results || []).length > 0)
+      .map(r => r.week);
+    return synced.length ? Math.max(...synced) : 1;
+  }
+
+  function qualifyingRandomConfig(week) {
+    const key = String(Number(week) || 1);
+    if (!state.prizes.randomConfigByWeek[key]) {
+      const p = state.prizes.inventory[0] || {name:'Xanax'};
+      state.prizes.randomConfigByWeek[key] = {
+        prizeName: p.name || 'Xanax',
+        winners: Number(state.settings.defaultWinners || 5)
+      };
+    }
+    return state.prizes.randomConfigByWeek[key];
+  }
+
+  function championshipRandomConfig(week) {
+    const key = String(Number(week) || 1);
+    if (!state.prizes.championshipRandomConfigByWeek[key]) {
+      const p = state.prizes.inventory[0] || {name:'Xanax'};
+      state.prizes.championshipRandomConfigByWeek[key] = {
+        prizeName: p.name || 'Xanax',
+        winners: Number(state.settings.defaultWinners || 5)
+      };
+    }
+    return state.prizes.championshipRandomConfigByWeek[key];
+  }
+
+  async function saveRandomConfig(scope, week, prizeName, winners) {
+    const cfg = scope === 'CHAMPIONSHIP'
+      ? championshipRandomConfig(week)
+      : qualifyingRandomConfig(week);
+    cfg.prizeName = String(prizeName || '').trim();
+    cfg.winners = Math.max(1, Number(winners) || 1);
+    await saveState(false);
+  }
+
+  function championshipDrawHistoryForWeek(week) {
+    return state.prizes.championshipDrawHistory.filter(h => Number(h.week) === Number(week));
+  }
+
   function groupedPrizeDraws(limit = 8) {
     const byId = new Map();
 
