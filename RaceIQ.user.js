@@ -1934,10 +1934,20 @@ Join the race, earn points, and fight for a Championship spot!`,
   function prizesView() {
     const defaultWeek = latestSyncedQualifyingWeek();
     const defaultEligible = eligibleForWeeklyDraw(defaultWeek);
-    const defaultPrize = state.prizes.inventory[0] || {name:'',stock:0,qtyPerWinner:1,reserve:0};
+    const qualifyingDrawCfg = qualifyingRandomConfig(defaultWeek);
+    const defaultPrize = getPrize(qualifyingDrawCfg.prizeName) || state.prizes.inventory[0] || {name:'',stock:0,qtyPerWinner:1,reserve:0};
     const available = Math.max(0, Number(defaultPrize.stock || 0) - Number(defaultPrize.reserve || 0));
-    const needed = Number(state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
+    const needed = Number(qualifyingDrawCfg.winners || state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
     const priorDraws = drawHistoryForWeek(defaultWeek);
+
+    const defaultChampWeek = latestSyncedChampionshipWeek();
+    const champRace = state.championship.races[defaultChampWeek - 1];
+    const champEligible = (champRace?.results || []).filter(r => r.name && Number(r.finish) > 0);
+    const champDrawCfg = championshipRandomConfig(defaultChampWeek);
+    const champPrize = getPrize(champDrawCfg.prizeName) || state.prizes.inventory[0] || {name:'',stock:0,qtyPerWinner:1,reserve:0};
+    const champAvailable = Math.max(0, Number(champPrize.stock || 0) - Number(champPrize.reserve || 0));
+    const champNeeded = Number(champDrawCfg.winners || state.settings.defaultWinners || 5) * Number(champPrize.qtyPerWinner || 1);
+    const champPrior = championshipDrawHistoryForWeek(defaultChampWeek).length;
     const validPlacementModes = ['WEEKLY','OVERALL','CHAMP_WEEKLY','CHAMP_OVERALL'];
     const selectedPlacementMode = validPlacementModes.includes(placementPrizeMode) ? placementPrizeMode : 'WEEKLY';
     const isChampPlacement = selectedPlacementMode.startsWith('CHAMP_');
@@ -2118,11 +2128,11 @@ Join the race, earn points, and fight for a Championship spot!`,
 
         <label class="ri-label">Prize</label>
         <select class="ri-select" id="ri-draw-prize">
-          ${state.prizes.inventory.map((p,i)=>`<option value="${esc(p.name)}" ${i===0?'selected':''}>${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`).join('')}
+          ${state.prizes.inventory.map(p=>`<option value="${esc(p.name)}" ${p.name===qualifyingDrawCfg.prizeName?'selected':''}>${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`).join('')}
         </select>
 
         <label class="ri-label">Number of winners</label>
-        <input class="ri-input" id="ri-draw-count" type="number" min="1" value="${state.settings.defaultWinners}">
+        <input class="ri-input" id="ri-draw-count" type="number" min="1" value="${qualifyingDrawCfg.winners || state.settings.defaultWinners}">
 
         <div class="ri-small" id="ri-draw-summary">
           Equal chance for every eligible racer who finished Week ${defaultWeek}. Winners are unique within this draw.
