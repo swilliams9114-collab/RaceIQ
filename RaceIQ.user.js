@@ -1751,6 +1751,59 @@ Join the race, earn points, and fight for a Championship spot!`,
     const available = Math.max(0, Number(defaultPrize.stock || 0) - Number(defaultPrize.reserve || 0));
     const needed = Number(state.settings.defaultWinners || 5) * Number(defaultPrize.qtyPerWinner || 1);
     const priorDraws = drawHistoryForWeek(defaultWeek);
+    const selectedPlacementWeek = placementPrizeWeek || defaultWeek;
+    const placement = placementConfig(selectedPlacementWeek);
+    const placementRace = state.qualifying[selectedPlacementWeek - 1];
+    const placementPodium = (placementRace?.results || [])
+      .filter(r => Number(r.finish) >= 1 && Number(r.finish) <= 3)
+      .sort((a,b) => Number(a.finish) - Number(b.finish));
+    const placementTotalMV = placementPrizeTotalMV(placement);
+
+    const placementOptions = state.prizes.inventory.map(p =>
+      `<option value="${esc(p.name)}">${esc(p.name)} — MV ${prizeMoney(p.mv || 0)}</option>`
+    ).join('');
+
+    const placeCard = (place, key, label) => {
+      const racer = placementPodium.find(r => Number(r.finish) === place);
+      const items = (placement[key] || []).map((item,index) => `
+        <div class="ri-race-card" style="margin-top:7px">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">${item.qty}x ${esc(item.name)}</div>
+              <div class="ri-small">MV ${prizeMoney(item.mv || 0)} each • ${prizeMoney(Number(item.qty || 0) * Number(item.mv || 0))} total</div>
+            </div>
+            ${!placement.awardId ? `<button class="ri-btn danger" data-action="remove-placement-prize" data-week="${selectedPlacementWeek}" data-place="${place}" data-index="${index}">Remove</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      const total = (placement[key] || []).reduce((sum,item) => sum + Number(item.qty || 0) * Number(item.mv || 0), 0);
+
+      return `
+        <div class="ri-card">
+          <h3>${label}</h3>
+          <div class="ri-small">
+            ${racer ? 'Current racer: ' + esc(racer.name) : 'Winner will populate after results are synced.'}
+            • Prize MV ${prizeMoney(total)}
+          </div>
+          <div class="ri-race-list">${items || '<div class="ri-small" style="margin-top:8px">No prizes configured.</div>'}</div>
+
+          ${!placement.awardId ? `
+            <div class="ri-grid" style="margin-top:8px">
+              <div>
+                <label class="ri-label">Prize</label>
+                <select class="ri-select" id="ri-place-${place}-prize">${placementOptions}</select>
+              </div>
+              <div>
+                <label class="ri-label">Qty</label>
+                <input class="ri-input" id="ri-place-${place}-qty" type="number" min="1" value="1">
+              </div>
+            </div>
+            <button class="ri-btn secondary" data-action="add-placement-prize" data-week="${selectedPlacementWeek}" data-place="${place}">+ Add Prize</button>
+          ` : ''}
+        </div>
+      `;
+    };
 
     const inv = state.prizes.inventory.map((p,i) => {
       const usable = Math.max(0, Number(p.stock || 0) - Number(p.reserve || 0));
@@ -1808,6 +1861,35 @@ Join the race, earn points, and fight for a Championship spot!`,
     }).join('');
 
     return `
+      <div class="ri-card">
+        <h3>Placement Prizes</h3>
+        <div class="ri-small">Configure one or more prizes for each podium position. These awards are separate from the random drawing.</div>
+
+        <label class="ri-label">Race Week</label>
+        <select class="ri-select" id="ri-placement-week">
+          ${state.qualifying.map(r => `<option value="${r.week}" ${r.week===selectedPlacementWeek?'selected':''}>Week ${r.week} — ${(r.results||[]).length} racers</option>`).join('')}
+        </select>
+
+        <div class="ri-grid" style="margin-top:8px">
+          <div class="ri-stat">Prize Pool MV<b>${prizeMoney(placementTotalMV)}</b></div>
+          <div class="ri-stat">Status<b>${placement.awardId ? 'AWARDED' : 'READY TO SET'}</b></div>
+        </div>
+
+        ${placement.awardId ? `<div class="ri-small" style="margin-top:8px">Awarded ${placement.awardedAt ? formatDateTime(placement.awardedAt) : ''}</div>` : ''}
+      </div>
+
+      ${placeCard(1,'first','1st Place')}
+      ${placeCard(2,'second','2nd Place')}
+      ${placeCard(3,'third','3rd Place')}
+
+      <div class="ri-card">
+        ${placement.awardId
+          ? `<button class="ri-btn danger" data-action="undo-placement-prizes" data-week="${selectedPlacementWeek}">Undo Placement Awards</button>`
+          : `<button class="ri-btn" data-action="award-placement-prizes" data-week="${selectedPlacementWeek}">Award Placement Prizes</button>`
+        }
+        <div class="ri-small" style="margin-top:8px">Awarding deducts prize quantities from inventory. Podium racers remain eligible for the random draw.</div>
+      </div>
+
       <div class="ri-card">
         <h3>Weekly Prize Draw</h3>
         <div class="ri-grid">
