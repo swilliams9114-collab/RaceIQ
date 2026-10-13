@@ -2868,6 +2868,10 @@ Join the race, earn points, and fight for a Championship spot!`,
     const drawPrizeEl = document.getElementById('ri-draw-prize');
     const drawCountEl = document.getElementById('ri-draw-count');
 
+    const champDrawWeekEl = document.getElementById('ri-champ-draw-week');
+    const champDrawPrizeEl = document.getElementById('ri-champ-draw-prize');
+    const champDrawCountEl = document.getElementById('ri-champ-draw-count');
+
     const refreshDrawSummary = () => {
       if (!drawWeekEl || !drawPrizeEl || !drawCountEl) return;
 
@@ -2900,8 +2904,56 @@ Join the race, earn points, and fight for a Championship spot!`,
 
     [drawWeekEl, drawPrizeEl, drawCountEl].forEach(el => {
       if (el) {
-        el.addEventListener('change', refreshDrawSummary);
+        const saveAndRefresh = async () => {
+          refreshDrawSummary();
+          if (drawWeekEl && drawPrizeEl && drawCountEl) {
+            await saveRandomConfig('QUALIFYING', Number(drawWeekEl.value), drawPrizeEl.value, Number(drawCountEl.value));
+          }
+        };
+        el.addEventListener('change', saveAndRefresh);
         el.addEventListener('input', refreshDrawSummary);
+      }
+    });
+
+    const refreshChampDrawSummary = () => {
+      if (!champDrawWeekEl || !champDrawPrizeEl || !champDrawCountEl) return;
+      const week = Number(champDrawWeekEl.value);
+      const race = state.championship.races[week - 1];
+      const eligible = (race?.results || []).filter(r => r.name && Number(r.finish) > 0);
+      const prize = getPrize(champDrawPrizeEl.value);
+      const count = Math.max(1, Number(champDrawCountEl.value) || 1);
+      const usable = prize ? Math.max(0, Number(prize.stock || 0) - Number(prize.reserve || 0)) : 0;
+      const needed = prize ? count * Number(prize.qtyPerWinner || 1) : 0;
+      const prior = championshipDrawHistoryForWeek(week).length;
+
+      const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+      };
+      setText('ri-champ-eligible-count', eligible.length);
+      setText('ri-champ-prior-count', prior);
+      setText('ri-champ-available-count', usable);
+      setText('ri-champ-needed-count', needed);
+
+      const summary = document.getElementById('ri-champ-draw-summary');
+      if (summary) {
+        summary.textContent =
+          'Equal chance for ' + eligible.length + ' eligible Championship Week ' + week +
+          ' racer(s). ' + count + ' unique winner(s), ' +
+          (prize?.qtyPerWinner || 1) + 'x ' + (prize?.name || 'prize') + ' each.';
+      }
+    };
+
+    [champDrawWeekEl, champDrawPrizeEl, champDrawCountEl].forEach(el => {
+      if (el) {
+        const saveAndRefresh = async () => {
+          refreshChampDrawSummary();
+          if (champDrawWeekEl && champDrawPrizeEl && champDrawCountEl) {
+            await saveRandomConfig('CHAMPIONSHIP', Number(champDrawWeekEl.value), champDrawPrizeEl.value, Number(champDrawCountEl.value));
+          }
+        };
+        el.addEventListener('change', saveAndRefresh);
+        el.addEventListener('input', refreshChampDrawSummary);
       }
     });
 
