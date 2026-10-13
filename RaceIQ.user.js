@@ -1302,6 +1302,80 @@ Join the race, earn points, and fight for a Championship spot!`,
       .slice(0, limit);
   }
 
+  function placementLines(cfg) {
+    const labels = [
+      ['first','1st'],
+      ['second','2nd'],
+      ['third','3rd']
+    ];
+    return labels.map(([key,label]) => {
+      const items = (cfg?.[key] || []);
+      if (!items.length) return '';
+      return label + ': ' + items.map(x => Number(x.qty || 0) + 'x ' + x.name).join(' + ');
+    }).filter(Boolean);
+  }
+
+  function prizeSummaryFor(scope, week) {
+    const lines = [];
+    const isChamp = scope === 'CHAMPIONSHIP';
+
+    const weeklyCfg = placementConfig(week, isChamp ? 'CHAMP_WEEKLY' : 'WEEKLY');
+    const weeklyLines = placementLines(weeklyCfg);
+    if (weeklyLines.length) {
+      lines.push((isChamp ? 'Championship Week ' : 'Week ') + week + ' podium:');
+      lines.push(...weeklyLines);
+    }
+
+    const randomCfg = isChamp ? championshipRandomConfig(week) : qualifyingRandomConfig(week);
+    const randomPrize = getPrize(randomCfg.prizeName);
+    if (randomCfg.prizeName && Number(randomCfg.winners || 0) > 0) {
+      lines.push(
+        'Random: ' + Number(randomCfg.winners || 0) + ' winner(s) × ' +
+        Number(randomPrize?.qtyPerWinner || 1) + 'x ' + randomCfg.prizeName
+      );
+    }
+
+    const overallCfg = placementConfig(week, isChamp ? 'CHAMP_OVERALL' : 'OVERALL');
+    const overallLines = placementLines(overallCfg);
+    if (overallLines.length) {
+      lines.push(isChamp ? 'Final Championship Top 3:' : 'Final Qualifying Top 3:');
+      lines.push(...overallLines);
+    }
+
+    return lines.length ? lines.join('\n') : 'No prizes configured yet.';
+  }
+
+  function championshipAnnouncement(week, short = false) {
+    const race = state.championship.races[Number(week) - 1];
+    if (!race) return 'Championship race not found.';
+
+    const upgrades = state.season.noUpgrades ? 'NO UPGRADES' : 'Upgrades allowed';
+    if (short) {
+      return 'AS Championship Week ' + week + ' — ' +
+        (race.track || 'TBD') + ', ' + (race.laps || 60) + ' laps, Class ' +
+        (race.raceClass || 'E') + ', ' + (race.date || 'TBD') + ' @ ' +
+        (race.time || '2200') + ' TCT. ' + upgrades + '. Password: ' +
+        (race.password || 'TBD') + '.';
+    }
+
+    return [
+      'AURORA SURREALIS — CHAMPIONSHIP WEEK ' + week,
+      '',
+      'Race: ' + (race.name || ('AS Championship Week ' + week + ' ' + state.season.name)),
+      'Date/Time: ' + (race.date || 'TBD') + ' @ ' + (race.time || '2200') + ' TCT',
+      'Track: ' + (race.track || 'TBD'),
+      'Laps: ' + (race.laps || 60),
+      'Class: ' + (race.raceClass || 'E'),
+      'Upgrades: ' + (state.season.noUpgrades ? 'Not Allowed' : 'Allowed'),
+      'Password: ' + (race.password || 'TBD'),
+      '',
+      'PRIZES',
+      prizeSummaryFor('CHAMPIONSHIP', week),
+      '',
+      'Championship points are separate from qualifying points.'
+    ].join('\n');
+  }
+
   // ---------- share messages ----------
   function shareTop8() {
     const s = aggregateQualifying();
