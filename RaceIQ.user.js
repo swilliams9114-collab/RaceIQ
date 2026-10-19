@@ -3389,6 +3389,50 @@ Join the race, earn points, and fight for a Championship spot!`,
           await copyText(out); return;
         }
         if (action === 'start-champ') { await startChampionship(); return; }
+        if (action === 'edit-champ-race') {
+          await editChampionshipRace(Number(btn.dataset.week));
+          return;
+        }
+        if (action === 'find-champ-race') {
+          const week = Number(btn.dataset.week);
+          const target = state.championship.races[week - 1];
+          if (!target.date) {
+            const date = prompt('Championship Week ' + week + ' race date (YYYY-MM-DD):', '');
+            if (date === null) return;
+            target.date = date.trim();
+            await saveState(false);
+          }
+          const found = await linkRace('championship', week);
+          toast('Championship W' + week + ': linked Race ID ' + found.id);
+          return;
+        }
+        if (action === 'sync-champ-race') {
+          const week = Number(btn.dataset.week);
+          const result = await syncRace('championship', week);
+          toast('Championship W' + week + ': ' + result.imported + ' racers synced');
+          return;
+        }
+        if (action === 'announce-champ-race') {
+          const week = Number(btn.dataset.week);
+          previewAndCopy(championshipAnnouncement(week, false), 'Championship Week ' + week + ' Announcement');
+          return;
+        }
+        if (action === 'sync-all-champ') {
+          let synced = 0;
+          for (let w = 1; w <= state.season.championshipWeeks; w++) {
+            const r = state.championship.races[w - 1];
+            if (!r?.raceId) continue;
+            try {
+              await syncRace('championship', w);
+              synced++;
+            } catch (e) {
+              console.warn('[RaceIQ] Championship Week ' + w, e);
+            }
+          }
+          toast(synced ? ('Synced ' + synced + ' linked Championship race(s).') : 'No linked Championship races to sync.');
+          return;
+        }
+
         if (action === 'sync-champ') {
           const week = currentChampionshipWeek();
           const result = await syncRace('championship', week);
