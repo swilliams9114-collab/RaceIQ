@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.6
+// @version      1.1.7
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.6',
+    version: '1.1.7',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -2631,6 +2631,31 @@ Join the race, earn points, and fight for a Championship spot!`,
     r.raceClass = cls.trim() || 'E';
     r.password = pw.trim();
     r.raceId = id.trim();
+    await saveState(false);
+  }
+
+  async function editChampionshipRace(week) {
+    const r = state.championship.races[week - 1];
+    if (!r) throw new Error('Championship race setup entry not found.');
+
+    const name = prompt('Championship Week ' + week + ' race name:', r.name); if (name === null) return;
+    const date = prompt('Championship Week ' + week + ' date (YYYY-MM-DD):', r.date); if (date === null) return;
+    const time = prompt('Championship Week ' + week + ' time in TCT (example 2200):', r.time || '2200'); if (time === null) return;
+    const track = prompt('Championship Week ' + week + ' track:', r.track); if (track === null) return;
+    const laps = prompt('Championship Week ' + week + ' laps:', r.laps); if (laps === null) return;
+    const cls = prompt('Championship Week ' + week + ' class:', r.raceClass); if (cls === null) return;
+    const pw = prompt('Championship Week ' + week + ' password:', r.password); if (pw === null) return;
+    const id = prompt('Championship Week ' + week + ' Race ID (blank = Find / Link later):', r.raceId); if (id === null) return;
+
+    r.name = name.trim() || ('AS Championship Week ' + week + ' ' + state.season.name);
+    r.date = date.trim();
+    r.time = String(time || '2200').replace(/\D/g, '').padStart(4, '0').slice(-4);
+    r.track = track.trim();
+    r.laps = Number(laps) || 60;
+    r.raceClass = cls.trim() || 'E';
+    r.password = pw.trim();
+    r.raceId = id.trim();
+    if (!r.raceId && displayStatus(r.status) === 'Completed') r.status = 'Planned';
     await saveState(false);
   }
 
