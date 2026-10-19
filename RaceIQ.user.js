@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.7
+// @version      1.1.8
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.7',
+    version: '1.1.8',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -2408,6 +2408,7 @@ Join the race, earn points, and fight for a Championship spot!`,
             <button class="ri-btn secondary" data-action="find-champ-race" data-week="${r.week}">Find / Link</button>
             <button class="ri-btn secondary" data-action="edit-champ-race" data-week="${r.week}">Edit</button>
             <button class="ri-btn secondary" data-action="announce-champ-race" data-week="${r.week}">Message</button>
+            <button class="ri-btn secondary" data-action="remind-champ-race" data-week="${r.week}">Short Reminder</button>
           </div>
         </div>
       `;
@@ -3415,6 +3416,11 @@ Join the race, earn points, and fight for a Championship spot!`,
         if (action === 'announce-champ-race') {
           const week = Number(btn.dataset.week);
           previewAndCopy(championshipAnnouncement(week, false), 'Championship Week ' + week + ' Announcement');
+          return;
+        }
+        if (action === 'remind-champ-race') {
+          const week = Number(btn.dataset.week);
+          previewAndCopy(championshipAnnouncement(week, true), 'Championship Week ' + week + ' Reminder');
           return;
         }
         if (action === 'sync-all-champ') {
