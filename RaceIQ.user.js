@@ -3216,12 +3216,21 @@ Join the race, earn points, and fight for a Championship spot!`,
           return;
         }
         if (action === 'award-placement-prizes') {
-          const result = await awardPlacementPrizes(Number(btn.dataset.week), btn.dataset.mode || 'WEEKLY');
-          if (result) toast('Placement prizes awarded and stock deducted.');
+          const week = Number(btn.dataset.week);
+          const mode = btn.dataset.mode || 'WEEKLY';
+          const result = await awardPlacementPrizes(week, mode);
+          if (result) {
+            toast('Placement prizes awarded and stock deducted.');
+            previewAndCopy(placementAwardText(week, mode), 'Placement Prize Winners');
+          }
           return;
         }
         if (action === 'undo-placement-prizes') {
           if (await undoPlacementPrizes(Number(btn.dataset.week), btn.dataset.mode || 'WEEKLY')) toast('Placement awards undone and stock restored.');
+          return;
+        }
+        if (action === 'copy-placement-winners') {
+          await copyText(placementAwardText(Number(btn.dataset.week), btn.dataset.mode || 'WEEKLY'));
           return;
         }
         if (action === 'edit-prize') { await editPrize(Number(btn.dataset.index)); return; }
