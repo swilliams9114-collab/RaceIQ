@@ -2379,6 +2379,40 @@ Join the race, earn points, and fight for a Championship spot!`,
       </tr>
     `).join('');
 
+    const champRaceCards = state.championship.races.map(r => {
+      const load = raceLoadStatus(r);
+      const loadClass = load === 'SYNCED' ? 'good' : load === 'LINKED' ? 'warn' : 'bad';
+      return `
+        <div class="ri-race-card">
+          <div class="ri-race-card-head">
+            <div>
+              <div class="ri-race-title">Championship Week ${r.week} — ${esc(r.name)}</div>
+              <div class="ri-small">
+                ${r.date ? esc(r.date) : 'Date not set'}
+                ${r.time ? ' • ' + esc(r.time) + ' TCT' : ''}
+                ${r.track ? ' • ' + esc(r.track) : ''}
+              </div>
+            </div>
+            <span class="ri-pill ${loadClass}">${load}</span>
+          </div>
+          <div class="ri-race-meta">
+            <span class="ri-pill">${esc(displayStatus(r.status || 'Planned'))}</span>
+            <span class="ri-pill">${esc(r.laps || 60)} laps</span>
+            <span class="ri-pill">Class ${esc(r.raceClass || 'E')}</span>
+            <span class="ri-pill">${state.season.noUpgrades ? 'No Upgrades' : 'Upgrades Allowed'}</span>
+            <span class="ri-pill">${(r.results || []).length} results</span>
+            ${r.raceId ? `<span class="ri-pill">ID ${esc(r.raceId)}</span>` : ''}
+          </div>
+          <div class="ri-race-actions">
+            <button class="ri-btn" data-action="sync-champ-race" data-week="${r.week}">Sync</button>
+            <button class="ri-btn secondary" data-action="find-champ-race" data-week="${r.week}">Find / Link</button>
+            <button class="ri-btn secondary" data-action="edit-champ-race" data-week="${r.week}">Edit</button>
+            <button class="ri-btn secondary" data-action="announce-champ-race" data-week="${r.week}">Message</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
     return `
       <div class="ri-card">
         <h3>Championship Readiness</h3>
@@ -2428,6 +2462,17 @@ Join the race, earn points, and fight for a Championship spot!`,
           <div class="ri-race-list">${finalists}</div>
         </div>
       `}
+
+      ${ready || state.championship.started ? `
+        <div class="ri-card">
+          <h3>Championship Race Setup</h3>
+          <div class="ri-small">Set up all 4 Championship races here. Use Find / Link after the Torn race exists, then Sync when results are available.</div>
+        </div>
+        <div class="ri-race-list">${champRaceCards}</div>
+        <div class="ri-card">
+          <button class="ri-btn secondary" data-action="sync-all-champ">Sync All Linked Championship Races</button>
+        </div>
+      ` : ''}
 
       ${state.championship.started ? `
         <div class="ri-card">
