@@ -2040,6 +2040,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     const selectedPlacementWeek = Math.min(maxPlacementWeek, Math.max(1, Number(placementPrizeWeek || fallbackPlacementWeek)));
     const placement = placementConfig(selectedPlacementWeek, selectedPlacementMode);
     const placementPodium = placementTargetRacers(selectedPlacementWeek, selectedPlacementMode);
+    const placementAwardedEntries = placementAwardEntries(selectedPlacementWeek, selectedPlacementMode);
     const placementTotalMV = placementPrizeTotalMV(placement);
     const qualifyingCompleted = state.qualifying.filter(r => displayStatus(r.status) === 'Completed').length;
     const championshipCompleted = state.championship.races.filter(r => displayStatus(r.status) === 'Completed').length;
@@ -2208,6 +2209,23 @@ Join the race, earn points, and fight for a Championship spot!`,
       ${placeCard(1,'first','1st Place')}
       ${placeCard(2,'second','2nd Place')}
       ${placeCard(3,'third','3rd Place')}
+
+      ${placementAwardedEntries.length ? `
+        <div class="ri-card">
+          <h3>Saved Placement Winners</h3>
+          <div class="ri-race-list">
+            ${[1,2,3].map(place => {
+              const entries = placementAwardedEntries.filter(x => Number(x.place) === place);
+              if (!entries.length) return '';
+              const racer = entries[0].racer;
+              const suffix = place===1?'st':place===2?'nd':'rd';
+              const prizes = entries.map(x => Number(x.qty||0) + 'x ' + esc(x.prize)).join(' + ');
+              return `<div class="ri-race-card"><div class="ri-race-title">${place}${suffix}: ${esc(racer)}</div><div class="ri-small">${prizes}</div></div>`;
+            }).join('')}
+          </div><br>
+          <button class="ri-btn secondary" data-action="copy-placement-winners" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}">Copy Placement Winners</button>
+        </div>
+      ` : ''}
 
       <div class="ri-card">
         ${placement.awardId
