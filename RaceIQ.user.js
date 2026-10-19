@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.5
+// @version      1.1.6
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.5',
+    version: '1.1.6',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -2862,6 +2862,35 @@ Join the race, earn points, and fight for a Championship spot!`,
     cfg.awardedAt = now;
     await saveState(false);
     return {awardId,plans,mode};
+  }
+
+  function placementAwardEntries(week, mode = 'WEEKLY') {
+    const cfg = placementConfig(week, mode);
+    if (!cfg.awardId) return [];
+    return state.prizes.placementHistory
+      .filter(h => h.id === cfg.awardId)
+      .sort((a,b) => Number(a.place || 99) - Number(b.place || 99) || String(a.prize || '').localeCompare(String(b.prize || '')));
+  }
+
+  function placementAwardText(week, mode = 'WEEKLY') {
+    const entries = placementAwardEntries(week, mode);
+    if (!entries.length) return placementModeLabel(mode, week) + '\n\nNo placement winners have been recorded yet.';
+
+    const groups = new Map();
+    entries.forEach(entry => {
+      const place = Number(entry.place || 0);
+      if (!groups.has(place)) groups.set(place, {racer:entry.racer, items:[]});
+      groups.get(place).items.push(Number(entry.qty || 0) + 'x ' + entry.prize);
+    });
+
+    let out = 'AURORA SURREALIS — ' + placementModeLabel(mode, week).toUpperCase() + ' PRIZE WINNERS\n\n';
+    [1,2,3].forEach(place => {
+      const g = groups.get(place);
+      if (!g) return;
+      const suffix = place === 1 ? 'st' : place === 2 ? 'nd' : 'rd';
+      out += place + suffix + ': ' + g.racer + ' — ' + g.items.join(' + ') + '\n';
+    });
+    return out.trim();
   }
 
   async function undoPlacementPrizes(week, mode = 'WEEKLY') {
