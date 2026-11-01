@@ -3778,6 +3778,12 @@ Join the race, earn points, and fight for a Championship spot!`,
 
   const clone = x => JSON.parse(JSON.stringify(x));
   const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  function battleRacerLink(name,id) {
+    const safeName=esc(name || (id ? 'Player ' + id : 'Unknown Racer'));
+    const userId=String(id || '').trim();
+    if(!userId) return safeName;
+    return '<a href="https://www.torn.com/profiles.php?XID=' + encodeURIComponent(userId) + '" target="_blank" rel="noopener noreferrer">' + safeName + '</a>';
+  }
   const norm = v => String(v || '').trim().replace(/\s+/g,' ').toLowerCase();
 
   function uid(prefix='battle') {
@@ -4182,9 +4188,9 @@ Join the race, earn points, and fight for a Championship spot!`,
     if(!(b.results||[]).length) return `<div class="rib-card"><h3>Results & Settlement</h3><div class="rib-small">Save the official Torn Race ID, then sync after the race finishes.</div><br><button class="rib-btn" data-rib-action="sync-results">Sync Official Results</button></div>`;
     const wt=b.teamScore?.winner==='AURORA'?'AURORA WINS':b.teamScore?.winner==='OPPONENT'?`${String(b.opponent||'OPPONENT').toUpperCase()} WINS`:'TIE';
     return `<div class="rib-card"><h3>Team Result</h3><div class="rib-grid"><div><div class="rib-small">Aurora Surrealis</div><div class="rib-score">${esc(b.teamScore?.aurora??0)}</div></div><div><div class="rib-small">${esc(b.opponent||'Opponent')}</div><div class="rib-score">${esc(b.teamScore?.opponent??0)}</div></div></div><br><b>${esc(wt)}</b>${(b.ignoredHostResults||[]).length?`<div class="rib-small">Host-only entry ignored: ${esc(b.ignoredHostResults.map(x=>x.name||x.id).join(', '))}. Competitor positions were re-ranked.</div>`:''}<div class="rib-actions">${!isLocked(b)?'<button class="rib-btn secondary" data-rib-action="sync-results">Re-sync Results</button>':''}<button class="rib-btn secondary" data-rib-action="copy-results">Copy Result Summary</button></div></div>
-      <div class="rib-card"><h3>Official Competitive Finish</h3>${b.results.map(r=>`<div class="rib-result"><b>#${esc(r.finish)}</b><span>${esc(r.name)}<br><span class="rib-small">${r.team==='AURORA'?'Aurora Surrealis':esc(b.opponent||'Opponent')}${r.rawFinish&&r.rawFinish!==r.finish?` • Torn #${esc(r.rawFinish)}`:''}</span></span><span>${esc(r.teamPoints)} pts</span></div>`).join('')}</div>
-      <div class="rib-card"><h3>Podium Prizes</h3>${(b.placementAwards||[]).map(a=>`<div class="rib-row"><b>${esc(a.place)}. ${esc(a.racer)}</b><div>${esc(a.prize||'No prize configured')}</div></div>`).join('')}</div>
-      <div class="rib-card"><h3>RNG Prizes</h3>${(b.rngWinners||[]).length?b.rngWinners.map(w=>`<div class="rib-row"><b>${esc(w.racer)}</b><div>${esc(w.qty)}x ${esc(w.prize)}</div></div>`).join(''):`<div class="rib-small">No RNG draw recorded yet.</div><br>${!isLocked(b)?'<button class="rib-btn" data-rib-action="run-rng">Run RNG Draw</button>':''}`}</div>
+      <div class="rib-card"><h3>Official Competitive Finish</h3>${b.results.map(r=>`<div class="rib-result"><b>#${esc(r.finish)}</b><span>${battleRacerLink(r.name,r.id)}<br><span class="rib-small">${r.team==='AURORA'?'Aurora Surrealis':esc(b.opponent||'Opponent')}${r.rawFinish&&r.rawFinish!==r.finish?` • Torn #${esc(r.rawFinish)}`:''}</span></span><span>${esc(r.teamPoints)} pts</span></div>`).join('')}</div>
+      <div class="rib-card"><h3>Podium Prizes</h3>${(b.placementAwards||[]).map(a=>`<div class="rib-row"><b>${esc(a.place)}. ${battleRacerLink(a.racer,a.racerId)}</b><div>${esc(a.prize||'No prize configured')}</div></div>`).join('')}</div>
+      <div class="rib-card"><h3>RNG Prizes</h3>${(b.rngWinners||[]).length?b.rngWinners.map(w=>`<div class="rib-row"><b>${battleRacerLink(w.racer,w.racerId)}</b><div>${esc(w.qty)}x ${esc(w.prize)}</div></div>`).join(''):`<div class="rib-small">No RNG draw recorded yet.</div><br>${!isLocked(b)?'<button class="rib-btn" data-rib-action="run-rng">Run RNG Draw</button>':''}`}</div>
       <div class="rib-card"><h3>Close Battle</h3>${isLocked(b)?`<div class="rib-small">Closed ${esc(b.closedAt?new Date(b.closedAt).toLocaleString():'')}. Results and RNG are locked.</div>`:'<div class="rib-small">Close only after results and prizes have been verified.</div><br><button class="rib-btn danger" data-rib-action="close-battle">Close & Lock Battle</button>'}</div>`;
   }
 
