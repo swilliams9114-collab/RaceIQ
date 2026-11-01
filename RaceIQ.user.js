@@ -3509,6 +3509,37 @@ Join the race, earn points, and fight for a Championship spot!`,
           await copyText(out); return;
         }
         if (action === 'start-champ') { await startChampionship(); return; }
+        if (action === 'save-champ-host-mode') {
+          const mode = document.getElementById('ri-champ-host-mode')?.value === 'COMPETING'
+            ? 'COMPETING'
+            : 'HOST_ONLY';
+          const name = String(document.getElementById('ri-champ-host-name')?.value || '').trim();
+          const id = String(document.getElementById('ri-champ-host-id')?.value || '').trim();
+
+          if (!name && !id) throw new Error('Enter your Championship host racer name or Torn ID.');
+
+          state.championship.hostParticipation = mode;
+          state.championship.hostName = name;
+          state.championship.hostId = id;
+
+          const applied = await applyChampionshipHostModeToAllRaces();
+
+          if (mode === 'HOST_ONLY') {
+            toast(
+              applied.excluded
+                ? ('Host-only mode saved • ' + applied.excluded + ' host result(s) excluded.')
+                : 'Host-only mode saved. Future Championship syncs will exclude the host.'
+            );
+          } else {
+            toast(
+              applied.restored
+                ? ('Competing mode saved • ' + applied.restored + ' host result(s) restored.')
+                : 'Competing mode saved.'
+            );
+          }
+          return;
+        }
+
         if (action === 'edit-champ-race') {
           await editChampionshipRace(Number(btn.dataset.week));
           return;
