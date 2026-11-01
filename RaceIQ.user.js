@@ -838,6 +838,78 @@ Join the race, earn points, and fight for a Championship spot!`,
     return found;
   }
 
+  function championshipHostMatches(result) {
+    const hostId = String(state.championship?.hostId || '').trim();
+    const hostName = normName(state.championship?.hostName || '_samara_');
+    const resultId = String(result?.id || '').trim();
+    const resultName = normName(result?.name || '');
+
+    if (hostId && resultId && hostId === resultId) return true;
+    return Boolean(hostName && resultName && hostName === resultName);
+  }
+
+  function rerankChampionshipResults(results) {
+    return (results || [])
+      .slice()
+      .sort((a,b) => Number(a.finish || 9999) - Number(b.finish || 9999))
+      .map((r,index) => ({
+        ...r,
+        finish: index + 1,
+        points: pointsForFinish(index + 1)
+      }));
+  }
+
+  function applyChampionshipHostModeToRace(race) {
+    if (!race) return {excluded:0, restored:0};
+
+    if (!Array.isArray(race.results)) race.results = [];
+    if (!Array.isArray(race.ignoredHostResults)) race.ignoredHostResults = [];
+
+    const hostOnly = state.championship?.hostParticipation !== 'COMPETING';
+
+    if (hostOnly) {
+      const combined = [...race.results, ...race.ignoredHostResults];
+      const ignored = combined.filter(championshipHostMatches);
+      const kept = combined.filter(r => !championshipHostMatches(r));
+
+      race.ignoredHostResults = ignored.map(r => ({...r}));
+      race.results = rerankChampionshipResults(kept);
+      return {excluded:ignored.length, restored:0};
+    }
+
+    const combined = [...race.results, ...race.ignoredHostResults];
+    const deduped = [];
+    const seen = new Set();
+
+    combined
+      .sort((a,b) => Number(a.finish || 9999) - Number(b.finish || 9999))
+      .forEach(r => {
+        const key = String(r.id || '') || normName(r.name || '') || ('finish:' + r.finish);
+        if (seen.has(key)) return;
+        seen.add(key);
+        deduped.push({...r});
+      });
+
+    race.results = rerankChampionshipResults(deduped);
+    const restored = race.ignoredHostResults.length;
+    race.ignoredHostResults = [];
+    return {excluded:0, restored};
+  }
+
+  async function applyChampionshipHostModeToAllRaces() {
+    let excluded = 0;
+    let restored = 0;
+
+    state.championship.races.forEach(race => {
+      const result = applyChampionshipHostModeToRace(race);
+      excluded += result.excluded;
+      restored += result.restored;
+    });
+
+    await saveState(false);
+    return {excluded, restored};
+  }
+
   async function syncRace(kind, week) {
     await fetchFactionMembers(false);
 
