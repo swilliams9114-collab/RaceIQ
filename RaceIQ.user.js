@@ -2060,7 +2060,8 @@ Join the race, earn points, and fight for a Championship spot!`,
           </div>
           <div class="ri-race-meta">
             <span class="ri-pill">${esc(displayStatus(r.status || 'Planned'))}</span>
-            <span class="ri-pill">${(r.results || []).length} results</span>
+            <span class="ri-pill">${(r.results || []).length} counted results</span>
+            ${(r.ignoredHostResults || []).length ? `<span class="ri-pill warn">${(r.ignoredHostResults || []).length} host excluded</span>` : ''}
             ${r.raceId ? `<span class="ri-pill">ID ${esc(r.raceId)}</span>` : ''}
           </div>
           <div class="ri-race-actions">
@@ -2558,6 +2559,31 @@ Join the race, earn points, and fight for a Championship spot!`,
       `}
 
       ${ready || state.championship.started ? `
+        <div class="ri-card">
+          <h3>Championship Host Participation</h3>
+          <div class="ri-small">
+            Use Host only when you are joining the Torn race just to host it. RaceIQ will exclude your result and re-rank the competing racers.
+          </div><br>
+
+          <label class="ri-label">Participation</label>
+          <select class="ri-select" id="ri-champ-host-mode">
+            <option value="HOST_ONLY" ${state.championship.hostParticipation !== 'COMPETING' ? 'selected' : ''}>Host only — do not count me</option>
+            <option value="COMPETING" ${state.championship.hostParticipation === 'COMPETING' ? 'selected' : ''}>Competing racer — count me normally</option>
+          </select>
+
+          <label class="ri-label">Host racer name</label>
+          <input class="ri-input" id="ri-champ-host-name" value="${esc(state.championship.hostName || '_samara_')}" placeholder="_samara_">
+
+          <label class="ri-label">Host Torn ID (optional)</label>
+          <input class="ri-input" id="ri-champ-host-id" value="${esc(state.championship.hostId || '')}" placeholder="Optional — name match is enough">
+
+          <div class="ri-small">
+            Currently excluded host result(s): ${state.championship.races.reduce((sum,r) => sum + (r.ignoredHostResults || []).length, 0)}
+          </div><br>
+
+          <button class="ri-btn" data-action="save-champ-host-mode">Save & Apply to Championship Results</button>
+        </div>
+
         <div class="ri-card">
           <h3>Championship Race Setup</h3>
           <div class="ri-small">Set up all 4 Championship races here. Use Find / Link after the Torn race exists, then Sync when results are available.</div>
