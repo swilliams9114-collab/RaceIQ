@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.9
+// @version      1.1.10
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.9',
+    version: '1.1.10',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -162,6 +162,14 @@ Join the race, earn points, and fight for a Championship spot!`,
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+
+  function racerProfileLink(name, id, extraClass = '') {
+    const safeName = esc(name || (id ? 'Player ' + id : 'Unknown Racer'));
+    const userId = String(id || '').trim();
+    if (!userId) return safeName;
+    const cls = extraClass ? ' class="' + esc(extraClass) + '"' : '';
+    return '<a' + cls + ' href="https://www.torn.com/profiles.php?XID=' + encodeURIComponent(userId) + '" target="_blank" rel="noopener noreferrer">' + safeName + '</a>';
+  }
 
   const normName = value => String(value || '')
     .trim().replace(/\s+/g, ' ').toLowerCase();
@@ -2090,7 +2098,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     const standings = aggregateQualifying();
     const rows = standings.map(r => `
       <tr class="${r.rank<=8?'ri-top8':r.rank<=12?'ri-bubble':''}">
-        <td>${r.rank}</td><td>${esc(r.name)}</td><td>${r.total}</td><td>${r.starts}</td><td>${r.wins}</td><td>${r.podiums}</td>
+        <td>${r.rank}</td><td>${racerProfileLink(r.name, r.id)}</td><td>${r.total}</td><td>${r.starts}</td><td>${r.wins}</td><td>${r.podiums}</td>
       </tr>`).join('');
 
     const eighth = standings[7], ninth = standings[8];
@@ -2099,7 +2107,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     return `
       <div class="ri-card">
         <h3>Qualifying Standings</h3>
-        ${eighth ? `<div class="ri-small">Cut line: #8 ${esc(eighth.name)} ${eighth.total} pts${ninth ? ` • #9 ${esc(ninth.name)} ${ninth.total} pts • Gap ${gap}`:''}</div><br>`:''}
+        ${eighth ? `<div class="ri-small">Cut line: #8 ${racerProfileLink(eighth.name, eighth.id)} ${eighth.total} pts${ninth ? ` • #9 ${racerProfileLink(ninth.name, ninth.id)} ${ninth.total} pts • Gap ${gap}`:''}</div><br>`:''}
         <table class="ri-table"><thead><tr><th>#</th><th>Racer</th><th>Pts</th><th>Starts</th><th>Wins</th><th>Pod.</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No synced results yet.</td></tr>'}</tbody></table>
       </div>
       <div class="ri-card">
@@ -2166,7 +2174,7 @@ Join the race, earn points, and fight for a Championship spot!`,
         <div class="ri-card">
           <h3>${label}</h3>
           <div class="ri-small">
-            ${racer ? (isOverallPlacement ? 'Current overall #' + place + ': ' : 'Current racer: ') + esc(racer.name) : (isOverallPlacement ? 'Overall position will populate from standings.' : 'Winner will populate after results are synced.')}
+            ${racer ? (isOverallPlacement ? 'Current overall #' + place + ': ' : 'Current racer: ') + racerProfileLink(racer.name, racer.id) : (isOverallPlacement ? 'Overall position will populate from standings.' : 'Winner will populate after results are synced.')}
             • Prize MV ${prizeMoney(total)}
           </div>
           <div class="ri-race-list">${items || '<div class="ri-small" style="margin-top:8px">No prizes configured.</div>'}</div>
@@ -2216,13 +2224,13 @@ Join the race, earn points, and fight for a Championship spot!`,
     const hist = state.prizes.history.slice(-12).reverse().map(h => `
       <tr>
         <td>W${h.week}</td>
-        <td>${esc(h.racer)}</td>
+        <td>${racerProfileLink(h.racer, h.racerId)}</td>
         <td>${h.qty}x ${esc(h.prize)}</td>
       </tr>
     `).join('');
 
     const recentDraws = groupedPrizeDraws().map(draw => {
-      const winnerNames = draw.winners.map(w => esc(w.racer)).join(', ');
+      const winnerNames = draw.winners.map(w => racerProfileLink(w.racer, w.racerId)).join(', ');
       const totalQty = draw.winners.reduce((sum,w) => sum + Number(w.qty || 0), 0);
       return `
         <div class="ri-race-card">
@@ -2244,7 +2252,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     }).join('');
 
     const recentChampDraws = groupedChampionshipDraws().map(draw => {
-      const winnerNames = draw.winners.map(w => esc(w.racer)).join(', ');
+      const winnerNames = draw.winners.map(w => racerProfileLink(w.racer, w.racerId)).join(', ');
       const totalQty = draw.winners.reduce((sum,w) => sum + Number(w.qty || 0), 0);
       return `
         <div class="ri-race-card">
@@ -2314,7 +2322,7 @@ Join the race, earn points, and fight for a Championship spot!`,
               const racer = entries[0].racer;
               const suffix = place===1?'st':place===2?'nd':'rd';
               const prizes = entries.map(x => Number(x.qty||0) + 'x ' + esc(x.prize)).join(' + ');
-              return `<div class="ri-race-card"><div class="ri-race-title">${place}${suffix}: ${esc(racer)}</div><div class="ri-small">${prizes}</div></div>`;
+              return `<div class="ri-race-card"><div class="ri-race-title">${place}${suffix}: ${racerProfileLink(racer, entries[0].racerId)}</div><div class="ri-small">${prizes}</div></div>`;
             }).join('')}
           </div><br>
           <button class="ri-btn secondary" data-action="copy-placement-winners" data-mode="${selectedPlacementMode}" data-week="${selectedPlacementWeek}">Copy Placement Winners</button>
@@ -2443,7 +2451,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       <div class="ri-race-card">
         <div class="ri-race-card-head">
           <div>
-            <div class="ri-race-title">#${r.rank} ${esc(r.name)}</div>
+            <div class="ri-race-title">#${r.rank} ${racerProfileLink(r.name, r.id)}</div>
             <div class="ri-small">${r.starts} starts • ${r.wins} win(s) • ${r.podiums} podium(s)</div>
           </div>
           <span class="ri-pill good">${r.total} pts</span>
@@ -2455,7 +2463,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       <div class="ri-race-card">
         <div class="ri-race-card-head">
           <div>
-            <div class="ri-race-title">Seed #${f.qualifyingSeed} — ${esc(f.name)}</div>
+            <div class="ri-race-title">Seed #${f.qualifyingSeed} — ${racerProfileLink(f.name, f.id)}</div>
             <div class="ri-small">Qualified with ${f.qualifyingPoints} pts</div>
           </div>
           <span class="ri-pill good">LOCKED</span>
@@ -2466,7 +2474,7 @@ Join the race, earn points, and fight for a Championship spot!`,
     const standings = cs.map(r => `
       <tr>
         <td>${r.rank}</td>
-        <td>${esc(r.name)}</td>
+        <td>${racerProfileLink(r.name, r.id)}</td>
         <td>${r.points}</td>
         <td>${r.wins}</td>
         <td>${r.podiums}</td>
