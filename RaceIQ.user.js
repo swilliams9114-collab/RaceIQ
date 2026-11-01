@@ -854,6 +854,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       .sort((a,b) => Number(a.finish || 9999) - Number(b.finish || 9999))
       .map((r,index) => ({
         ...r,
+        rawFinish: Number(r.rawFinish || r.finish || index + 1),
         finish: index + 1,
         points: pointsForFinish(index + 1)
       }));
@@ -868,12 +869,15 @@ Join the race, earn points, and fight for a Championship spot!`,
     const hostOnly = state.championship?.hostParticipation !== 'COMPETING';
 
     if (hostOnly) {
-      const combined = [...race.results, ...race.ignoredHostResults];
+      const combined = [...race.results, ...race.ignoredHostResults]
+        .map(r => ({...r, rawFinish:Number(r.rawFinish || r.finish || 0)}));
       const ignored = combined.filter(championshipHostMatches);
       const kept = combined.filter(r => !championshipHostMatches(r));
 
       race.ignoredHostResults = ignored.map(r => ({...r}));
-      race.results = rerankChampionshipResults(kept);
+      race.results = rerankChampionshipResults(
+        kept.slice().sort((a,b) => Number(a.rawFinish || 9999) - Number(b.rawFinish || 9999))
+      );
       return {excluded:ignored.length, restored:0};
     }
 
@@ -882,7 +886,8 @@ Join the race, earn points, and fight for a Championship spot!`,
     const seen = new Set();
 
     combined
-      .sort((a,b) => Number(a.finish || 9999) - Number(b.finish || 9999))
+      .map(r => ({...r, rawFinish:Number(r.rawFinish || r.finish || 0)}))
+      .sort((a,b) => Number(a.rawFinish || 9999) - Number(b.rawFinish || 9999))
       .forEach(r => {
         const key = String(r.id || '') || normName(r.name || '') || ('finish:' + r.finish);
         if (seen.has(key)) return;
@@ -929,6 +934,7 @@ Join the race, earn points, and fight for a Championship spot!`,
       .map(r => ({
         id: r.id,
         name: r.name,
+        rawFinish: r.position,
         finish: r.position,
         points: pointsForFinish(r.position)
       }))
