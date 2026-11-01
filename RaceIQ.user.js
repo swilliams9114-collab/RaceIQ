@@ -934,6 +934,11 @@ Join the race, earn points, and fight for a Championship spot!`,
       }))
       .sort((a,b) => (a.finish || 9999) - (b.finish || 9999));
 
+    if (kind === 'championship') {
+      target.ignoredHostResults = [];
+      applyChampionshipHostModeToRace(target);
+    }
+
     target.status = displayStatus(race?.status ?? race?.state ?? race?.race_status ?? target.status);
     target.syncedAt = new Date().toISOString();
 
