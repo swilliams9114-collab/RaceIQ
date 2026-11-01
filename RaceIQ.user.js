@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RaceIQ - Aurora Surrealis Race Manager
 // @namespace    raceiq.aurora.surrealis
-// @version      1.1.8
+// @version      1.1.9
 // @description  Mobile-first TornPDA race manager with season racing, Championship, Faction Battles, prizes, sharing, diagnostics, and backups.
 // @homepageURL  https://github.com/swilliams9114-collab/RaceIQ
 // @supportURL   https://github.com/swilliams9114-collab/RaceIQ/issues
@@ -18,7 +18,7 @@
 
   const APP = {
     name: 'RaceIQ',
-    version: '1.1.8',
+    version: '1.1.9',
     apiBase: 'https://api.torn.com/v2',
     apiKey: '###PDA-APIKEY###',
     storageKey: 'raceiq_state_v1',
@@ -63,6 +63,9 @@
     championship: {
       started: false,
       finalists: [],
+      hostParticipation: 'HOST_ONLY',
+      hostName: '_samara_',
+      hostId: '',
       races: Array.from({length: 4}, (_, i) => ({
         week: i + 1,
         raceId: '',
@@ -75,6 +78,7 @@
         password: '',
         status: 'Planned',
         results: [],
+        ignoredHostResults: [],
         syncedAt: ''
       }))
     },
@@ -361,6 +365,12 @@ Join the race, earn points, and fight for a Championship spot!`,
     if (!state.meta) state.meta = clone(DEFAULT_STATE.meta);
     if (!Array.isArray(state.qualifying)) state.qualifying = clone(DEFAULT_STATE.qualifying);
     if (!state.championship) state.championship = clone(DEFAULT_STATE.championship);
+    if (!state.championship.hostParticipation) state.championship.hostParticipation = 'HOST_ONLY';
+    if (state.championship.hostName == null) state.championship.hostName = '_samara_';
+    if (state.championship.hostId == null) state.championship.hostId = '';
+    (state.championship.races || []).forEach(r => {
+      if (!Array.isArray(r.ignoredHostResults)) r.ignoredHostResults = [];
+    });
     if (!state.prizes || typeof state.prizes !== 'object') state.prizes = clone(DEFAULT_STATE.prizes);
     if (!Array.isArray(state.prizes.inventory)) state.prizes.inventory = clone(DEFAULT_STATE.prizes.inventory);
     if (!Array.isArray(state.prizes.history)) state.prizes.history = [];
